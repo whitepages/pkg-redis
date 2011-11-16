@@ -1,6 +1,8 @@
 redis (2:2.4.2-1) UNRELEASED; urgency=low
 
   * New upstream release.
+  * /etc/init.d/redis-server fixes:
+    - Send TERM, not QUIT signal.
 
  -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 15:46:51 +0000
 
