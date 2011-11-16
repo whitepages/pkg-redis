@@ -1,3 +1,17 @@
+redis (2:2.4.2-1) unstable; urgency=low
+
+  * New upstream release.
+  * /etc/init.d/redis-server fixes:
+    - Send TERM, not QUIT signal.
+    - Sleep 1 second after exiting as although the process has disappeared the
+      server socket is somehow still in use which causes the start to fail.
+  * Drop 01-fix-link-ordering patch; fixed upstream.
+    <http://code.google.com/p/redis/issues/detail?id=562>.
+  * Update 02-fix-ftbfs-on-kfreebsd.
+  * Drop redis-doc package now that upstream no longer ship documentation.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 16:00:23 +0000
+
 redis (2:2.2.12-1~bpo60+1) squeeze-backports; urgency=low
 
   * Rebuild for squeeze-backports.
