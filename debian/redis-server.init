@@ -48,6 +48,7 @@ case "$1" in
 		echo "failed"
 	fi
 	rm -f $PIDFILE
+	sleep 1
 	;;
 
   restart|force-reload)
