@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include "slowlog.h"
+#include "bio.h"
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -58,7 +59,7 @@
 
 struct sharedObjectsStruct shared;
 
-/* Global vars that are actally used as constants. The following double
+/* Global vars that are actually used as constants. The following double
  * values are used for double on-disk serialization, and are initialized
  * at runtime to avoid strange compiler optimizations. */
 
@@ -530,6 +531,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * in objects at every object access, and accuracy is not needed.
      * To access a global var is faster than calling time(NULL) */
     server.unixtime = time(NULL);
+
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
      * 2^22 bits with 10 seconds resoluton is more or less 1.5 years.
@@ -635,7 +637,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              server.auto_aofrewrite_perc &&
              server.appendonly_current_size > server.auto_aofrewrite_min_size)
          {
-            int base = server.auto_aofrewrite_base_size ?
+            long long base = server.auto_aofrewrite_base_size ?
                             server.auto_aofrewrite_base_size : 1;
             long long growth = (server.appendonly_current_size*100/base) - 100;
             if (growth >= server.auto_aofrewrite_perc) {
@@ -644,6 +646,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
+
+
+    /* If we postponed an AOF buffer flush, let's try to do it every time the
+     * cron function is called. */
+    if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
 
     /* Expire a few keys per cycle, only if this is a master.
      * On slaves we wait for DEL operations synthesized by the master
@@ -728,7 +735,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* Write the AOF buffer on disk */
-    flushAppendOnlyFile();
+    flushAppendOnlyFile(0);
 }
 
 /* =========================== Server initialization ======================== */
@@ -791,6 +798,7 @@ void initServerConfig() {
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
+    server.unixsocketperm = 0;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -813,6 +821,7 @@ void initServerConfig() {
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
+    server.aof_flush_postponed_start = 0;
     server.pidfile = zstrdup("/var/run/redis.pid");
     server.dbfilename = zstrdup("dump.rdb");
     server.appendfilename = zstrdup("appendonly.aof");
@@ -900,13 +909,14 @@ void initServer() {
     if (server.port != 0) {
         server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
         if (server.ipfd == ANET_ERR) {
-            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            redisLog(REDIS_WARNING, "Opening port %d: %s",
+                server.port, server.neterr);
             exit(1);
         }
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket);
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);
@@ -963,6 +973,7 @@ void initServer() {
 
     if (server.vm_enabled) vmInit();
     slowlogInit();
+    bioInit();
     srand(time(NULL)^getpid());
 }
 
@@ -1006,9 +1017,9 @@ void call(redisClient *c) {
     duration = ustime()-start;
     slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
 
-    if (server.appendonly && dirty)
+    if (server.appendonly && dirty > 0)
         feedAppendOnlyFile(c->cmd,c->db->id,c->argv,c->argc);
-    if ((dirty || c->cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
+    if ((dirty > 0 || c->cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
         listLength(server.slaves))
         replicationFeedSlaves(server.slaves,c->db->id,c->argv,c->argc);
     if (listLength(server.monitors))
@@ -1160,6 +1171,10 @@ int prepareForShutdown() {
     /* Close the listening sockets. Apparently this allows faster restarts. */
     if (server.ipfd != -1) close(server.ipfd);
     if (server.sofd != -1) close(server.sofd);
+    if (server.unixsocket) {
+        redisLog(REDIS_NOTICE,"Removing the unix socket file.");
+        unlink(server.unixsocket); /* don't care if this fails */
+    }
 
     redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
@@ -1168,7 +1183,9 @@ int prepareForShutdown() {
 /*================================== Commands =============================== */
 
 void authCommand(redisClient *c) {
-    if (!server.requirepass || !strcmp(c->argv[1]->ptr, server.requirepass)) {
+    if (!server.requirepass) {
+        addReplyError(c,"Client sent AUTH, but no password is set");
+    } else if (!strcmp(c->argv[1]->ptr, server.requirepass)) {
       c->authenticated = 1;
       addReply(c,shared.ok);
     } else {
@@ -1261,8 +1278,6 @@ sds genRedisInfoString(void) {
         "evicted_keys:%lld\r\n"
         "keyspace_hits:%lld\r\n"
         "keyspace_misses:%lld\r\n"
-        "hash_max_zipmap_entries:%zu\r\n"
-        "hash_max_zipmap_value:%zu\r\n"
         "pubsub_channels:%ld\r\n"
         "pubsub_patterns:%u\r\n"
         "latest_fork_usec:%lld\r\n"
@@ -1277,10 +1292,10 @@ sds genRedisInfoString(void) {
         uptime,
         uptime/(3600*24),
         (unsigned long) server.lruclock,
-        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
         (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
-        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,
+        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
         (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
+        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,
         listLength(server.clients)-listLength(server.slaves),
         listLength(server.slaves),
         lol, bib,
@@ -1304,8 +1319,6 @@ sds genRedisInfoString(void) {
         server.stat_evictedkeys,
         server.stat_keyspace_hits,
         server.stat_keyspace_misses,
-        server.hash_max_zipmap_entries,
-        server.hash_max_zipmap_value,
         dictSize(server.pubsub_channels),
         listLength(server.pubsub_patterns),
         server.stat_fork_time,
@@ -1638,8 +1651,13 @@ int main(int argc, char **argv) {
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);
     } else {
-        if (rdbLoad(server.dbfilename) == REDIS_OK)
-            redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
+        if (rdbLoad(server.dbfilename) == REDIS_OK) {
+            redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",
+                time(NULL)-start);
+        } else if (errno != ENOENT) {
+            redisLog(REDIS_WARNING,"Fatal error loading the DB. Exiting.");
+            exit(1);
+        }
     }
     if (server.ipfd > 0)
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
@@ -1660,8 +1678,10 @@ static void *getMcontextEip(ucontext_t *uc) {
 #elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
   #if __x86_64__
     return (void*) uc->uc_mcontext->__ss.__rip;
-  #else
+  #elif __i386__
     return (void*) uc->uc_mcontext->__ss.__eip;
+  #else
+    return (void*) uc->uc_mcontext->__ss.__srr0;
   #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
   #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
