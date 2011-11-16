@@ -5,6 +5,8 @@ redis (2:2.4.2-1) UNRELEASED; urgency=low
     - Send TERM, not QUIT signal.
     - Sleep 1 second after exiting as although the process has disappeared the
       server socket is somehow still in use which causes the start to fail.
+  * Drop 01-fix-link-ordering patch; fixed upstream.
+    <http://code.google.com/p/redis/issues/detail?id=562>.
 
  -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 15:46:51 +0000
 
