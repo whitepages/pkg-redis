@@ -1,4 +1,4 @@
-redis (2:2.4.2-1) UNRELEASED; urgency=low
+redis (2:2.4.2-1) unstable; urgency=low
 
   * New upstream release.
   * /etc/init.d/redis-server fixes:
@@ -10,7 +10,7 @@ redis (2:2.4.2-1) UNRELEASED; urgency=low
   * Update 02-fix-ftbfs-on-kfreebsd.
   * Drop redis-doc package now that upstream no longer ship documentation.
 
- -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 15:46:51 +0000
+ -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 16:00:23 +0000
 
 redis (2:2.2.12-1) unstable; urgency=low
 
