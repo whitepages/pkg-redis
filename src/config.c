@@ -74,6 +74,12 @@ void loadServerConfig(char *filename) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
+            errno = 0;
+            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
+            if (errno || server.unixsocketperm > 0777) {
+                err = "Invalid socket file permissions"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"save") && argc == 3) {
             int seconds = atoi(argv[1]);
             int changes = atoi(argv[2]);
@@ -232,6 +238,18 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'no', 'always' or 'everysec'";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
+                   argc == 2)
+        {
+            server.auto_aofrewrite_perc = atoi(argv[1]);
+            if (server.auto_aofrewrite_perc < 0) {
+                err = "Invalid negative percentage for AOF auto rewrite";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
+                   argc == 2)
+        {
+            server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
@@ -269,6 +287,10 @@ void loadServerConfig(char *filename) {
             server.list_max_ziplist_value = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
             server.set_max_intset_entries = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
+            server.zset_max_ziplist_entries = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"zset-max-ziplist-value") && argc == 2) {
+            server.zset_max_ziplist_value = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommand(argv[1]);
             int retval;
@@ -408,6 +430,12 @@ void configSetCommand(redisClient *c) {
                 }
             }
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.auto_aofrewrite_perc = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.auto_aofrewrite_min_size = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -467,12 +495,30 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.set_max_intset_entries = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-entries")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.zset_max_ziplist_entries = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-value")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.zset_max_ziplist_value = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-log-slower-than")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR) goto badfmt;
         server.slowlog_log_slower_than = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-max-len")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.slowlog_max_len = (unsigned)ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"loglevel")) {
+        if (!strcasecmp(o->ptr,"warning")) {
+            server.verbosity = REDIS_WARNING;
+        } else if (!strcasecmp(o->ptr,"notice")) {
+            server.verbosity = REDIS_NOTICE;
+        } else if (!strcasecmp(o->ptr,"verbose")) {
+            server.verbosity = REDIS_VERBOSE;
+        } else if (!strcasecmp(o->ptr,"debug")) {
+            server.verbosity = REDIS_DEBUG;
+        } else {
+            goto badfmt;
+        }
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -498,12 +544,11 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"dir",0)) {
         char buf[1024];
 
-        addReplyBulkCString(c,"dir");
-        if (getcwd(buf,sizeof(buf)) == NULL) {
+        if (getcwd(buf,sizeof(buf)) == NULL)
             buf[0] = '\0';
-        } else {
-            addReplyBulkCString(c,buf);
-        }
+
+        addReplyBulkCString(c,"dir");
+        addReplyBulkCString(c,buf);
         matches++;
     }
     if (stringmatch(pattern,"dbfilename",0)) {
@@ -594,6 +639,16 @@ void configGetCommand(redisClient *c) {
         sdsfree(buf);
         matches++;
     }
+    if (stringmatch(pattern,"auto-aof-rewrite-percentage",0)) {
+        addReplyBulkCString(c,"auto-aof-rewrite-percentage");
+        addReplyBulkLongLong(c,server.auto_aofrewrite_perc);
+        matches++;
+    }
+    if (stringmatch(pattern,"auto-aof-rewrite-min-size",0)) {
+        addReplyBulkCString(c,"auto-aof-rewrite-min-size");
+        addReplyBulkLongLong(c,server.auto_aofrewrite_min_size);
+        matches++;
+    }
     if (stringmatch(pattern,"slave-serve-stale-data",0)) {
         addReplyBulkCString(c,"slave-serve-stale-data");
         addReplyBulkCString(c,server.repl_serve_stale_data ? "yes" : "no");
@@ -624,6 +679,16 @@ void configGetCommand(redisClient *c) {
         addReplyBulkLongLong(c,server.set_max_intset_entries);
         matches++;
     }
+    if (stringmatch(pattern,"zset-max-ziplist-entries",0)) {
+        addReplyBulkCString(c,"zset-max-ziplist-entries");
+        addReplyBulkLongLong(c,server.zset_max_ziplist_entries);
+        matches++;
+    }
+    if (stringmatch(pattern,"zset-max-ziplist-value",0)) {
+        addReplyBulkCString(c,"zset-max-ziplist-value");
+        addReplyBulkLongLong(c,server.zset_max_ziplist_value);
+        matches++;
+    }
     if (stringmatch(pattern,"slowlog-log-slower-than",0)) {
         addReplyBulkCString(c,"slowlog-log-slower-than");
         addReplyBulkLongLong(c,server.slowlog_log_slower_than);
@@ -632,6 +697,20 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"slowlog-max-len",0)) {
         addReplyBulkCString(c,"slowlog-max-len");
         addReplyBulkLongLong(c,server.slowlog_max_len);
+        matches++;
+    }
+    if (stringmatch(pattern,"loglevel",0)) {
+        char *s;
+
+        switch(server.verbosity) {
+        case REDIS_WARNING: s = "warning"; break;
+        case REDIS_VERBOSE: s = "verbose"; break;
+        case REDIS_NOTICE: s = "notice"; break;
+        case REDIS_DEBUG: s = "debug"; break;
+        default: s = "unknown"; break; /* too harmless to panic */
+        }
+        addReplyBulkCString(c,"loglevel");
+        addReplyBulkCString(c,s);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);

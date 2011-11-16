@@ -32,6 +32,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -291,7 +292,7 @@ int anetTcpServer(char *err, int port, char *bindaddr)
     return s;
 }
 
-int anetUnixServer(char *err, char *path)
+int anetUnixServer(char *err, char *path, mode_t perm)
 {
     int s;
     struct sockaddr_un sa;
@@ -304,6 +305,8 @@ int anetUnixServer(char *err, char *path)
     strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
     if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa)) == ANET_ERR)
         return ANET_ERR;
+    if (perm)
+        chmod(sa.sun_path, perm);
     return s;
 }
 
@@ -344,4 +347,14 @@ int anetUnixAccept(char *err, int s) {
         return ANET_ERR;
 
     return fd;
+}
+
+int anetPeerToString(int fd, char *ip, int *port) {
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof(sa);
+
+    if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) return -1;
+    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
+    if (port) *port = ntohs(sa.sin_port);
+    return 0;
 }
