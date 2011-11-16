@@ -8,6 +8,7 @@ redis (2:2.4.2-1) UNRELEASED; urgency=low
   * Drop 01-fix-link-ordering patch; fixed upstream.
     <http://code.google.com/p/redis/issues/detail?id=562>.
   * Update 02-fix-ftbfs-on-kfreebsd.
+  * Drop redis-doc package now that upstream no longer ship documentation.
 
  -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 15:46:51 +0000
 
