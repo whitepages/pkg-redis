@@ -10,6 +10,6 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 
-override_dh_auto_clean:
-	rm -rf mkreleasehdr.sh
-	dh_auto_clean
+clean:
+	dh $@
+	rm -f src/release.h

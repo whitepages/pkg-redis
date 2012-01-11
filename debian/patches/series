@@ -1,2 +1,2 @@
-01-fix-testsuite-on-sparc.diff -p1
 02-fix-ftbfs-on-kfreebsd -p1
+03-use-system-jemalloc.diff -p1
