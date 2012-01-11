@@ -1,9 +1,9 @@
-redis (2:2.4.5-1) UNRELEASED; urgency=low
+redis (2:2.4.5-1) unstable; urgency=low
 
   * New upstream version (Closes: #655416)
   * Use system jemalloc. (Closes: #654900, #654902)
 
- -- Chris Lamb <lamby@debian.org>  Wed, 11 Jan 2012 12:25:11 +0000
+ -- Chris Lamb <lamby@debian.org>  Wed, 11 Jan 2012 12:30:27 +0000
 
 redis (2:2.4.2-2) unstable; urgency=low
 
