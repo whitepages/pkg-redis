@@ -156,6 +156,10 @@ sds sdscat(sds s, char *t) {
     return sdscatlen(s, t, strlen(t));
 }
 
+sds sdscatsds(sds s, sds t) {
+    return sdscatlen(s, t, sdslen(t));
+}
+
 sds sdscpylen(sds s, char *t, size_t len) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     size_t totlen = sh->free+sh->len;
@@ -474,7 +478,8 @@ sds *sdssplitargs(char *line, int *argc) {
         while(*p && isspace(*p)) p++;
         if (*p) {
             /* get a token */
-            int inq=0; /* set to 1 if we are in "quotes" */
+            int inq=0;  /* set to 1 if we are in "quotes" */
+            int insq=0; /* set to 1 if we are in 'single quotes' */
             int done=0;
 
             if (current == NULL) current = sdsempty();
@@ -504,7 +509,23 @@ sds *sdssplitargs(char *line, int *argc) {
                         }
                         current = sdscatlen(current,&c,1);
                     } else if (*p == '"') {
-                        /* closing quote must be followed by a space */
+                        /* closing quote must be followed by a space or
+                         * nothing at all. */
+                        if (*(p+1) && !isspace(*(p+1))) goto err;
+                        done=1;
+                    } else if (!*p) {
+                        /* unterminated quotes */
+                        goto err;
+                    } else {
+                        current = sdscatlen(current,p,1);
+                    }
+                } else if (insq) {
+                    if (*p == '\\' && *(p+1) == '\'') {
+                        p++;
+                        current = sdscatlen(current,"'",1);
+                    } else if (*p == '\'') {
+                        /* closing quote must be followed by a space or
+                         * nothing at all. */
                         if (*(p+1) && !isspace(*(p+1))) goto err;
                         done=1;
                     } else if (!*p) {
@@ -524,6 +545,9 @@ sds *sdssplitargs(char *line, int *argc) {
                         break;
                     case '"':
                         inq=1;
+                        break;
+                    case '\'':
+                        insq=1;
                         break;
                     default:
                         current = sdscatlen(current,p,1);
