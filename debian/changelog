@@ -1,6 +1,7 @@
 redis (2:2.4.5-2) UNRELEASED; urgency=low
 
   * Fix debian/watch (Closes: #661919)
+  * Don't use jemalloc on archs not supporting it (Closes: #661354)
 
  -- Chris Lamb <lamby@debian.org>  Sun, 11 Mar 2012 20:52:12 +0000
 
