@@ -17,7 +17,7 @@
 /* This skiplist implementation is almost a C translation of the original
  * algorithm described by William Pugh in "Skip Lists: A Probabilistic
  * Alternative to Balanced Trees", modified in three ways:
- * a) this implementation allows for repeated values.
+ * a) this implementation allows for repeated scores.
  * b) the comparison is not just by key (our 'score') but by satellite data.
  * c) there is a back pointer, so it's a doubly linked list with the back
  * pointers being only at "level 1". This allows to traverse the list
@@ -504,7 +504,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
         return 0;
 
     p = ziplistIndex(zl,-1); /* Last score. */
-    redisAssert(p != NULL);
+    if (p == NULL) return 0; /* Empty sorted set */
     score = zzlGetScore(p);
     if (!zslValueGteMin(score,range))
         return 0;
@@ -1256,7 +1256,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     if (val->flags & OPVAL_DIRTY_ROBJ)
         decrRefCount(val->ele);
 
-    bzero(val,sizeof(zsetopval));
+    memset(val,0,sizeof(zsetopval));
 
     if (op->type == REDIS_SET) {
         iterset *it = &op->iter.set;
