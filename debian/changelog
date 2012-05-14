@@ -1,3 +1,10 @@
+redis (2:2.4.9-2) UNRELEASED; urgency=low
+
+  * Add /etc/default/redis-server option to call ``ulimit -n'' before
+    invoking Redis. (Closes: #672638)
+
+ -- Chris Lamb <lamby@debian.org>  Mon, 14 May 2012 10:30:16 +0000
+
 redis (2:2.4.9-1) unstable; urgency=low
 
   * New upstream release.
