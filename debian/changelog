@@ -1,3 +1,9 @@
+redis (2:2.4.13-1) UNRELEASED; urgency=low
+
+  * New upstream release. (Closes: #673202)
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 17 May 2012 10:27:35 +0100
+
 redis (2:2.4.9-2) unstable; urgency=low
 
   * Add /etc/default/redis-server option to call ``ulimit -n'' before
