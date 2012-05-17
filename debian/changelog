@@ -1,6 +1,7 @@
 redis (2:2.4.13-1) UNRELEASED; urgency=low
 
   * New upstream release. (Closes: #673202)
+  * Sync upstream redis.conf changes with debian/redis.conf.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 17 May 2012 10:27:35 +0100
 
