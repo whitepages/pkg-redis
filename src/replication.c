@@ -25,24 +25,15 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (slave->slaveseldb != dictid) {
             robj *selectcmd;
 
-            switch(dictid) {
-            case 0: selectcmd = shared.select0; break;
-            case 1: selectcmd = shared.select1; break;
-            case 2: selectcmd = shared.select2; break;
-            case 3: selectcmd = shared.select3; break;
-            case 4: selectcmd = shared.select4; break;
-            case 5: selectcmd = shared.select5; break;
-            case 6: selectcmd = shared.select6; break;
-            case 7: selectcmd = shared.select7; break;
-            case 8: selectcmd = shared.select8; break;
-            case 9: selectcmd = shared.select9; break;
-            default:
+            if (dictid >= 0 && dictid < REDIS_SHARED_SELECT_CMDS) {
+                incrRefCount(shared.select[dictid]);
+                selectcmd = shared.select[dictid];
+            } else {
                 selectcmd = createObject(REDIS_STRING,
                     sdscatprintf(sdsempty(),"select %d\r\n",dictid));
-                selectcmd->refcount = 0;
-                break;
             }
             addReply(slave,selectcmd);
+            decrRefCount(selectcmd);
             slave->slaveseldb = dictid;
         }
         addReplyMultiBulkLen(slave,argc);
@@ -122,8 +113,7 @@ void syncCommand(redisClient *c) {
         if (ln) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */
-            listRelease(c->reply);
-            c->reply = listDup(slave->reply);
+            copyClientOutputBuffer(c,slave);
             c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
             redisLog(REDIS_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
@@ -471,9 +461,22 @@ int connectWithMaster(void) {
         return REDIS_ERR;
     }
 
+    server.repl_transfer_lastio = time(NULL);
     server.repl_transfer_s = fd;
     server.replstate = REDIS_REPL_CONNECTING;
     return REDIS_OK;
+}
+
+/* This function can be called when a non blocking connection is currently
+ * in progress to undo it. */
+void undoConnectWithMaster(void) {
+    int fd = server.repl_transfer_s;
+
+    redisAssert(server.replstate == REDIS_REPL_CONNECTING);
+    aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+    close(fd);
+    server.repl_transfer_s = -1;
+    server.replstate = REDIS_REPL_CONNECT;
 }
 
 void slaveofCommand(redisClient *c) {
@@ -485,6 +488,8 @@ void slaveofCommand(redisClient *c) {
             if (server.master) freeClient(server.master);
             if (server.replstate == REDIS_REPL_TRANSFER)
                 replicationAbortSyncTransfer();
+            else if (server.replstate == REDIS_REPL_CONNECTING)
+                undoConnectWithMaster();
             server.replstate = REDIS_REPL_NONE;
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
         }
@@ -493,6 +498,7 @@ void slaveofCommand(redisClient *c) {
         server.masterhost = sdsdup(c->argv[1]->ptr);
         server.masterport = atoi(c->argv[2]->ptr);
         if (server.master) freeClient(server.master);
+        disconnectSlaves(); /* Force our slaves to resync with us as well. */
         if (server.replstate == REDIS_REPL_TRANSFER)
             replicationAbortSyncTransfer();
         server.replstate = REDIS_REPL_CONNECT;
@@ -504,13 +510,18 @@ void slaveofCommand(redisClient *c) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
-#define REDIS_REPL_TIMEOUT 60
-#define REDIS_REPL_PING_SLAVE_PERIOD 10
-
 void replicationCron(void) {
+    /* Non blocking connection timeout? */
+    if (server.masterhost && server.replstate == REDIS_REPL_CONNECTING &&
+        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
+    {
+        redisLog(REDIS_WARNING,"Timeout connecting to the MASTER...");
+        undoConnectWithMaster();
+    }
+
     /* Bulk transfer I/O timeout? */
     if (server.masterhost && server.replstate == REDIS_REPL_TRANSFER &&
-        (time(NULL)-server.repl_transfer_lastio) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"Timeout receiving bulk data from MASTER...");
         replicationAbortSyncTransfer();
@@ -518,7 +529,7 @@ void replicationCron(void) {
 
     /* Timed out master when we are an already connected slave? */
     if (server.masterhost && server.replstate == REDIS_REPL_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"MASTER time out: no data nor PING received...");
         freeClient(server.master);
@@ -536,7 +547,7 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    if (!(server.cronloops % (REDIS_REPL_PING_SLAVE_PERIOD*10))) {
+    if (!(server.cronloops % (server.repl_ping_slave_period*10))) {
         listIter li;
         listNode *ln;
 

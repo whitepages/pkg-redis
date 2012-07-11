@@ -32,6 +32,7 @@ set ::all_tests {
     unit/pubsub
     unit/slowlog
     unit/maxmemory
+    unit/introspection
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -41,6 +42,7 @@ set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
 set ::verbose 0
+set ::quiet 0
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
@@ -111,7 +113,7 @@ proc reconnect {args} {
     }
 
     # re-set $srv in the servers list
-    set ::servers [lreplace $::servers end+$level 1 $srv]
+    lset ::servers end+$level $srv
 }
 
 proc redis_deferring_client {args} {
@@ -141,19 +143,19 @@ proc s {args} {
 }
 
 proc cleanup {} {
-    puts -nonewline "Cleanup: may take some time... "
+    if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
     flush stdout
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
-    puts "OK"
+    if {!$::quiet} {puts "OK"}
 }
 
 proc find_available_port start {
     for {set j $start} {$j < $start+1024} {incr j} {
         if {[catch {
-            set fd [socket 127.0.0.1 $start]
+            set fd [socket 127.0.0.1 $j]
         }]} {
-            return $start
+            return $j
         } else {
             close $fd
         }
@@ -168,7 +170,9 @@ proc test_server_main {} {
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
     set port [find_available_port 11111]
-    puts "Starting test server at port $port"
+    if {!$::quiet} {
+        puts "Starting test server at port $port"
+    }
     socket -server accept_test_clients $port
 
     # Start the client instances
@@ -222,16 +226,22 @@ proc read_from_test_client fd {
     set payload [read $fd $bytes]
     foreach {status data} $payload break
     if {$status eq {ready}} {
-        puts "\[$status\]: $data"
+        if {!$::quiet} {
+            puts "\[$status\]: $data"
+        }
         signal_idle_client $fd
     } elseif {$status eq {done}} {
         set elapsed [expr {[clock seconds]-$::clients_start_time($fd)}]
-        puts "\[[colorstr yellow $status]\]: $data ($elapsed seconds)"
-        puts "+++ [expr {[llength $::active_clients]-1}] units still in execution."
+        set all_tests_count [llength $::all_tests]
+        set running_tests_count [expr {[llength $::active_clients]-1}]
+        set completed_tests_count [expr {$::next_test-$running_tests_count}]
+        puts "\[$completed_tests_count/$all_tests_count [colorstr yellow $status]\]: $data ($elapsed seconds)"
         lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
     } elseif {$status eq {ok}} {
-        puts "\[[colorstr green $status]\]: $data"
+        if {!$::quiet} {
+            puts "\[[colorstr green $status]\]: $data"
+        }
     } elseif {$status eq {err}} {
         set err "\[[colorstr red $status]\]: $data"
         puts $err
@@ -245,7 +255,9 @@ proc read_from_test_client fd {
     } elseif {$status eq {testing}} {
         # No op
     } else {
-        puts "\[$status\]: $data"
+        if {!$::quiet} {
+            puts "\[$status\]: $data"
+        }
     }
 }
 
@@ -257,7 +269,9 @@ proc signal_idle_client fd {
         [lsearch -all -inline -not -exact $::active_clients $fd]
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
-        puts [colorstr bold-white "Testing [lindex $::all_tests $::next_test]"]
+        if {!$::quiet} {
+            puts [colorstr bold-white "Testing [lindex $::all_tests $::next_test]"]
+        }
         set ::clients_start_time($fd) [clock seconds]
         send_data_packet $fd run [lindex $::all_tests $::next_test]
         lappend ::active_clients $fd
@@ -321,6 +335,7 @@ proc print_help_screen {} {
     puts [join {
         "--valgrind         Run the test over valgrind."
         "--accurate         Run slow randomized tests for more iterations."
+        "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
         "--list-tests       List all the available test units."
         "--force-failure    Force the execution of a test that always fails."
@@ -343,6 +358,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
+    } elseif {$opt eq {--quiet}} {
+        set ::quiet 1
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -375,6 +392,18 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     }
 }
 
+# With the parallel test running multiple Redis instances at the same time
+# we need a fast enough computer, otherwise a lot of tests may generate
+# false positives.
+# If the computer is too slow we revert the sequetial test without any
+# parallelism, that is, clients == 1.
+proc is_a_slow_computer {} {
+    set start [clock milliseconds]
+    for {set j 0} {$j < 1000000} {incr j} {}
+    set elapsed [expr [clock milliseconds]-$start]
+    expr {$elapsed > 200}
+}
+
 if {$::client} {
     if {[catch { test_client_main $::test_server_port } err]} {
         set estr "Executing test client: $err.\n$::errorInfo"
@@ -384,6 +413,11 @@ if {$::client} {
         exit 1
     }
 } else {
+    if {[is_a_slow_computer]} {
+        puts "** SLOW COMPUTER ** Using a single client to avoid false positives."
+        set ::numclients 1
+    }
+
     if {[catch { test_server_main } err]} {
         if {[string length $err] > 0} {
             # only display error when not generated by the test suite

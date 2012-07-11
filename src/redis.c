@@ -480,9 +480,10 @@ void updateDictResizePolicy(void) {
  * keys that can be removed from the keyspace. */
 void activeExpireCycle(void) {
     int j;
+    long long start = mstime();
 
     for (j = 0; j < server.dbnum; j++) {
-        int expired;
+        int expired, iteration = 0;
         redisDb *db = server.db+j;
 
         /* Continue to expire if at the end of the cycle more than 25%
@@ -511,6 +512,12 @@ void activeExpireCycle(void) {
                     server.stat_expiredkeys++;
                 }
             }
+            /* We can't block forever here even if there are many keys to
+             * expire. So after a given amount of milliseconds return to the
+             * caller waiting for the other active expire cycle. */
+            iteration++;
+            if ((iteration & 0xff) == 0 && /* Check once every 255 iterations */
+                (mstime()-start) > REDIS_EXPIRELOOKUPS_TIME_LIMIT) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
 }
@@ -716,8 +723,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             call(c);
             resetClient(c);
             /* There may be more data to process in the input buffer. */
-            if (c->querybuf && sdslen(c->querybuf) > 0)
+            if (c->querybuf && sdslen(c->querybuf) > 0) {
+                server.current_client = c;
                 processInputBuffer(c);
+                server.current_client = NULL;
+            }
         }
     }
 
@@ -770,16 +780,11 @@ void createSharedObjects(void) {
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
-    shared.select0 = createStringObject("select 0\r\n",10);
-    shared.select1 = createStringObject("select 1\r\n",10);
-    shared.select2 = createStringObject("select 2\r\n",10);
-    shared.select3 = createStringObject("select 3\r\n",10);
-    shared.select4 = createStringObject("select 4\r\n",10);
-    shared.select5 = createStringObject("select 5\r\n",10);
-    shared.select6 = createStringObject("select 6\r\n",10);
-    shared.select7 = createStringObject("select 7\r\n",10);
-    shared.select8 = createStringObject("select 8\r\n",10);
-    shared.select9 = createStringObject("select 9\r\n",10);
+
+    for (j = 0; j < REDIS_SHARED_SELECT_CMDS; j++) {
+        shared.select[j] = createObject(REDIS_STRING,
+            sdscatprintf(sdsempty(),"select %d\r\n", j));
+    }
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
@@ -795,6 +800,7 @@ void createSharedObjects(void) {
 }
 
 void initServerConfig() {
+    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
@@ -804,6 +810,7 @@ void initServerConfig() {
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_VERBOSE;
     server.maxidletime = REDIS_MAXIDLETIME;
+    server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = NULL; /* NULL = log on standard output */
@@ -848,6 +855,8 @@ void initServerConfig() {
     server.zset_max_ziplist_entries = REDIS_ZSET_MAX_ZIPLIST_ENTRIES;
     server.zset_max_ziplist_value = REDIS_ZSET_MAX_ZIPLIST_VALUE;
     server.shutdown_asap = 0;
+    server.repl_ping_slave_period = REDIS_REPL_PING_SLAVE_PERIOD;
+    server.repl_timeout = REDIS_REPL_TIMEOUT;
 
     updateLRUClock();
     resetServerSaveParams();
@@ -864,7 +873,7 @@ void initServerConfig() {
     server.replstate = REDIS_REPL_NONE;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = 1;
-    server.repl_down_since = -1;
+    server.repl_down_since = time(NULL);
 
     /* Double constants initialization */
     R_Zero = 0.0;
@@ -883,6 +892,12 @@ void initServerConfig() {
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
+
+    /* Assert */
+    server.assert_failed = "<no assertion failed>";
+    server.assert_file = "<no file>";
+    server.assert_line = 0;
+    server.bug_report_start = 0;
 }
 
 void initServer() {
@@ -898,6 +913,7 @@ void initServer() {
     }
 
     server.mainthread = pthread_self();
+    server.current_client = NULL;
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -969,6 +985,16 @@ void initServer() {
                 strerror(errno));
             exit(1);
         }
+    }
+
+    /* 32 bit instances are limited to 4GB of address space, so if there is
+     * no explicit limit in the user provided configuration we set a limit
+     * at 3.5GB using maxmemory with 'noeviction' policy'. This saves
+     * useless crashes of the Redis instance. */
+    if (server.arch_bits == 32 && server.maxmemory == 0) {
+        redisLog(REDIS_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3.5 GB maxmemory limit with 'noeviction' policy now.");
+        server.maxmemory = 3584LL*(1024*1024); /* 3584 MB = 3.5 GB */
+        server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
     }
 
     if (server.vm_enabled) vmInit();
@@ -1048,7 +1074,7 @@ int processCommand(redisClient *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         addReplyErrorFormat(c,"unknown command '%s'",
             (char*)c->argv[0]->ptr);
@@ -1072,12 +1098,13 @@ int processCommand(redisClient *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
-    if (server.maxmemory) freeMemoryIfNeeded();
-    if (server.maxmemory && (c->cmd->flags & REDIS_CMD_DENYOOM) &&
-        zmalloc_used_memory() > server.maxmemory)
-    {
-        addReplyError(c,"command not allowed when used memory > 'maxmemory'");
-        return REDIS_OK;
+    if (server.maxmemory) {
+        int retval = freeMemoryIfNeeded();
+        if ((c->cmd->flags & REDIS_CMD_DENYOOM) && retval == REDIS_ERR) {
+            addReplyError(c,
+                "command not allowed when used memory > 'maxmemory'");
+            return REDIS_OK;
+        }
     }
 
     /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
@@ -1244,8 +1271,9 @@ sds genRedisInfoString(void) {
         "redis_version:%s\r\n"
         "redis_git_sha1:%s\r\n"
         "redis_git_dirty:%d\r\n"
-        "arch_bits:%s\r\n"
+        "arch_bits:%d\r\n"
         "multiplexing_api:%s\r\n"
+        "gcc_version:%d.%d.%d\r\n"
         "process_id:%ld\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
@@ -1286,8 +1314,13 @@ sds genRedisInfoString(void) {
         ,REDIS_VERSION,
         redisGitSHA1(),
         strtol(redisGitDirty(),NULL,10) > 0,
-        (sizeof(long) == 8) ? "64" : "32",
+        server.arch_bits,
         aeGetApiName(),
+#ifdef __GNUC__
+        __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+#else
+        0,0,0,
+#endif
         (long) getpid(),
         uptime,
         uptime/(3600*24),
@@ -1330,10 +1363,47 @@ sds genRedisInfoString(void) {
         info = sdscatprintf(info,
             "aof_current_size:%lld\r\n"
             "aof_base_size:%lld\r\n"
-            "aof_pending_rewrite:%d\r\n",
+            "aof_pending_rewrite:%d\r\n"
+            "aof_buffer_length:%zu\r\n"
+            "aof_pending_bio_fsync:%llu\r\n",
             (long long) server.appendonly_current_size,
             (long long) server.auto_aofrewrite_base_size,
-            server.aofrewrite_scheduled);
+            server.aofrewrite_scheduled,
+            sdslen(server.aofbuf),
+            bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC));
+    }
+
+    /* List connected slaves */
+    if (listLength(server.slaves)) {
+        int slaveid = 0;
+        listNode *ln;
+        listIter li;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = listNodeValue(ln);
+            char *state = NULL;
+            char ip[32];
+            int port;
+
+            if (anetPeerToString(slave->fd,ip,&port) == -1) continue;
+            switch(slave->replstate) {
+            case REDIS_REPL_WAIT_BGSAVE_START:
+            case REDIS_REPL_WAIT_BGSAVE_END:
+                state = "wait_bgsave";
+                break;
+            case REDIS_REPL_SEND_BULK:
+                state = "send_bulk";
+                break;
+            case REDIS_REPL_ONLINE:
+                state = "online";
+                break;
+            }
+            if (state == NULL) continue;
+            info = sdscatprintf(info,"slave%d:%s,%d,%s\r\n",
+                slaveid,ip,port,state);
+            slaveid++;
+        }
     }
 
     if (server.masterhost) {
@@ -1461,23 +1531,57 @@ void monitorCommand(redisClient *c) {
 /* ============================ Maxmemory directive  ======================== */
 
 /* This function gets called when 'maxmemory' is set on the config file to limit
- * the max memory used by the server, and we are out of memory.
- * This function will try to, in order:
+ * the max memory used by the server, before processing a command.
  *
- * - Free objects from the free list
- * - Try to remove keys with an EXPIRE set
+ * The goal of the function is to free enough memory to keep Redis under the
+ * configured memory limit.
  *
- * It is not possible to free enough memory to reach used-memory < maxmemory
- * the server will start refusing commands that will enlarge even more the
- * memory usage.
+ * The function starts calculating how many bytes should be freed to keep
+ * Redis under the limit, and enters a loop selecting the best keys to
+ * evict accordingly to the configured policy.
+ *
+ * If all the bytes needed to return back under the limit were freed the
+ * function returns REDIS_OK, otherwise REDIS_ERR is returned, and the caller
+ * should block the execution of commands that will result in more memory
+ * used by the server.
  */
-void freeMemoryIfNeeded(void) {
-    /* Remove keys accordingly to the active policy as long as we are
-     * over the memory limit. */
-    if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION) return;
+int freeMemoryIfNeeded(void) {
+    size_t mem_used, mem_tofree, mem_freed;
+    int slaves = listLength(server.slaves);
 
-    while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
-        int j, k, freed = 0;
+    /* Remove the size of slaves output buffers and AOF buffer from the
+     * count of used memory. */
+    mem_used = zmalloc_used_memory();
+    if (slaves) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = listNodeValue(ln);
+            unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
+            if (obuf_bytes > mem_used)
+                mem_used = 0;
+            else
+                mem_used -= obuf_bytes;
+        }
+    }
+    if (server.appendonly) {
+        mem_used -= sdslen(server.aofbuf);
+        mem_used -= sdslen(server.bgrewritebuf);
+    }
+
+    /* Check if we are over the memory limit. */
+    if (mem_used <= server.maxmemory) return REDIS_OK;
+
+    if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION)
+        return REDIS_ERR; /* We need to free memory, but policy forbids. */
+
+    /* Compute how much memory we need to free. */
+    mem_tofree = mem_used - server.maxmemory;
+    mem_freed = 0;
+    while (mem_freed < mem_tofree) {
+        int j, k, keys_freed = 0;
 
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
@@ -1550,16 +1654,36 @@ void freeMemoryIfNeeded(void) {
 
             /* Finally remove the selected key. */
             if (bestkey) {
+                long long delta;
+
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
                 propagateExpire(db,keyobj);
+                /* We compute the amount of memory freed by dbDelete() alone.
+                 * It is possible that actually the memory needed to propagate
+                 * the DEL in AOF and replication link is greater than the one
+                 * we are freeing removing the key, but we can't account for
+                 * that otherwise we would never exit the loop.
+                 *
+                 * AOF and Output buffer memory will be freed eventually so
+                 * we only care about memory used by the key space. */
+                delta = (long long) zmalloc_used_memory();
                 dbDelete(db,keyobj);
+                delta -= (long long) zmalloc_used_memory();
+                mem_freed += delta;
                 server.stat_evictedkeys++;
                 decrRefCount(keyobj);
-                freed++;
+                keys_freed++;
+
+                /* When the memory to free starts to be big enough, we may
+                 * start spending so much time here that is impossible to
+                 * deliver data to the slaves fast enough, so we force the
+                 * transmission here inside the loop. */
+                if (slaves) flushSlavesOutputBuffers();
             }
         }
-        if (!freed) return; /* nothing to free... */
+        if (!keys_freed) return REDIS_ERR; /* nothing to free... */
     }
+    return REDIS_OK;
 }
 
 /* =================================== Main! ================================ */
@@ -1621,13 +1745,26 @@ void version() {
 void usage() {
     fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
+    fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n\n");
     exit(1);
 }
+
+void memtest(size_t megabytes, int passes);
 
 int main(int argc, char **argv) {
     time_t start;
 
     initServerConfig();
+    if (argc >= 2 && strcmp(argv[1], "--test-memory") == 0) {
+        if (argc == 3) {
+            memtest(atoi(argv[2]),50);
+            exit(0);
+        } else {
+            fprintf(stderr,"Please specify the amount of memory to test in megabytes.\n");
+            fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
+            exit(1);
+        }
+    }
     if (argc == 2) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();
@@ -1700,32 +1837,91 @@ static void *getMcontextEip(ucontext_t *uc) {
 #endif
 }
 
+void bugReportStart(void) {
+    if (server.bug_report_start == 0) {
+        redisLog(REDIS_WARNING,
+            "=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        server.bug_report_start = 1;
+    }
+}
+
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     void *trace[100];
     char **messages = NULL;
     int i, trace_size = 0;
     ucontext_t *uc = (ucontext_t*) secret;
-    sds infostring;
+    sds infostring, clients;
     struct sigaction act;
     REDIS_NOTUSED(info);
 
+    bugReportStart();
     redisLog(REDIS_WARNING,
-        "======= Ooops! Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
-    infostring = genRedisInfoString();
-    redisLog(REDIS_WARNING, "%s",infostring);
-    /* It's not safe to sdsfree() the returned string under memory
-     * corruption conditions. Let it leak as we are going to abort */
+        "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+    redisLog(REDIS_WARNING,
+        "    Failed assertion: %s (%s:%d)", server.assert_failed,
+                        server.assert_file, server.assert_line);
 
+    /* Generate the stack trace */
     trace_size = backtrace(trace, 100);
+
     /* overwrite sigaction with caller's address */
     if (getMcontextEip(uc) != NULL) {
         trace[1] = getMcontextEip(uc);
     }
     messages = backtrace_symbols(trace, trace_size);
-
+    redisLog(REDIS_WARNING, "--- STACK TRACE");
     for (i=1; i<trace_size; ++i)
         redisLog(REDIS_WARNING,"%s", messages[i]);
 
+    /* Log INFO and CLIENT LIST */
+    redisLog(REDIS_WARNING, "--- INFO OUTPUT");
+    infostring = genRedisInfoString();
+    redisLog(REDIS_WARNING, infostring);
+    redisLog(REDIS_WARNING, "--- CLIENT LIST OUTPUT");
+    clients = getAllClientsInfoString();
+    redisLog(REDIS_WARNING, clients);
+    /* Don't sdsfree() strings to avoid a crash. Memory may be corrupted. */
+
+    /* Log CURRENT CLIENT info */
+    if (server.current_client) {
+        redisClient *cc = server.current_client;
+        sds client;
+        int j;
+
+        redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
+        client = getClientInfoString(cc);
+        redisLog(REDIS_WARNING,"client: %s", client);
+        /* Missing sdsfree(client) to avoid crash if memory is corrupted. */
+        for (j = 0; j < cc->argc; j++) {
+            robj *decoded;
+
+            decoded = getDecodedObject(cc->argv[j]);
+            redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+            decrRefCount(decoded);
+        }
+        /* Check if the first argument, usually a key, is found inside the
+         * selected DB, and if so print info about the associated object. */
+        if (cc->argc >= 1) {
+            robj *val, *key;
+            dictEntry *de;
+
+            key = getDecodedObject(cc->argv[1]);
+            de = dictFind(cc->db->dict, key->ptr);
+            if (de) {
+                val = dictGetEntryVal(de);
+                redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
+                redisLogObjectDebugInfo(val);
+            }
+            decrRefCount(key);
+        }
+    }
+
+    redisLog(REDIS_WARNING,
+"=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
+"       Please report the crash opening an issue on github:\n\n"
+"           http://github.com/antirez/redis/issues\n\n"
+"  Suspect RAM error? Use redis-server --test-memory to veryfy it.\n\n"
+);
     /* free(messages); Don't call free() with possibly corrupted memory. */
     if (server.daemonize) unlink(server.pidfile);
 

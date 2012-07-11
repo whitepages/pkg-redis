@@ -235,6 +235,7 @@ void debugCommand(redisClient *c) {
             addReply(c,shared.err);
             return;
         }
+        server.dirty = 0; /* Prevent AOF / replication */
         redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
@@ -336,20 +337,50 @@ void debugCommand(redisClient *c) {
     }
 }
 
+void redisLogObjectDebugInfo(robj *o) {
+    redisLog(REDIS_WARNING,"Object type: %d", o->type);
+    redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
+    redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
+    if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
+        redisLog(REDIS_WARNING,"Object raw string len: %d", sdslen(o->ptr));
+        if (sdslen(o->ptr) < 4096)
+            redisLog(REDIS_WARNING,"Object raw string content: \"%s\"", (char*)o->ptr);
+    } else if (o->type == REDIS_LIST) {
+        redisLog(REDIS_WARNING,"List length: %d", (int) listTypeLength(o));
+    } else if (o->type == REDIS_SET) {
+        redisLog(REDIS_WARNING,"Set size: %d", (int) setTypeSize(o));
+    } else if (o->type == REDIS_HASH) {
+        redisLog(REDIS_WARNING,"Hash size: %d", (int) hashTypeLength(o));
+    } else if (o->type == REDIS_ZSET) {
+        redisLog(REDIS_WARNING,"Sorted set size: %d", (int) zsetLength(o));
+        if (o->encoding == REDIS_ENCODING_SKIPLIST)
+            redisLog(REDIS_WARNING,"Skiplist level: %d", (int) ((zset*)o->ptr)->zsl->level);
+    }
+}
+
 void _redisAssert(char *estr, char *file, int line) {
+#ifdef HAVE_BACKTRACE
+    bugReportStart();
+#endif
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
     redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
-    redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
-    *((char*)-1) = 'x';
+    server.assert_failed = estr;
+    server.assert_file = file;
+    server.assert_line = line;
+    redisLog(REDIS_WARNING,"(forcing SIGSEGV to print the bug report.)");
 #endif
+    *((char*)-1) = 'x';
 }
 
 void _redisPanic(char *msg, char *file, int line) {
+#ifdef HAVE_BACKTRACE
+    bugReportStart();
+#endif
     redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
     redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
 #ifdef HAVE_BACKTRACE
     redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
-    *((char*)-1) = 'x';
 #endif
+    *((char*)-1) = 'x';
 }

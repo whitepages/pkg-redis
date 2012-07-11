@@ -8,21 +8,27 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
     return so;
 }
 
-/* Return the value associated to the key with a name obtained
- * substituting the first occurence of '*' in 'pattern' with 'subst'.
+/* Return the value associated to the key with a name obtained using
+ * the following rules:
+ *
+ * 1) The first occurence of '*' in 'pattern' is substituted with 'subst'.
+ *
+ * 2) If 'pattern' matches the "->" string, everything on the left of
+ *    the arrow is treated as the name of an hash field, and the part on the
+ *    left as the key name containing an hash. The value of the specified
+ *    field is returned.
+ *
+ * 3) If 'pattern' equals "#", the function simply returns 'subst' itself so
+ *    that the SORT command can be used like: SORT key GET # to retrieve
+ *    the Set/List elements directly.
+ *
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
-    char *p, *f;
+    char *p, *f, *k;
     sds spat, ssub;
-    robj keyobj, fieldobj, *o;
+    robj *keyobj, *fieldobj = NULL, *o;
     int prefixlen, sublen, postfixlen, fieldlen;
-    /* Expoit the internal sds representation to create a sds string allocated on the stack in order to make this function faster */
-    struct {
-        int len;
-        int free;
-        char buf[REDIS_SORTKEY_MAX+1];
-    } keyname, fieldname;
 
     /* If the pattern is "#" return the substitution object itself in order
      * to implement the "SORT ... GET #" feature. */
@@ -36,9 +42,10 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
      * a decoded object on the fly. Otherwise getDecodedObject will just
      * increment the ref count, that we'll decrement later. */
     subst = getDecodedObject(subst);
-
     ssub = subst->ptr;
-    if (sdslen(spat)+sdslen(ssub)-1 > REDIS_SORTKEY_MAX) return NULL;
+
+    /* If we can't find '*' in the pattern we return NULL as to GET a
+     * fixed key does not make sense. */
     p = strchr(spat,'*');
     if (!p) {
         decrRefCount(subst);
@@ -46,46 +53,49 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     }
 
     /* Find out if we're dealing with a hash dereference. */
-    if ((f = strstr(p+1, "->")) != NULL) {
-        fieldlen = sdslen(spat)-(f-spat);
-        /* this also copies \0 character */
-        memcpy(fieldname.buf,f+2,fieldlen-1);
-        fieldname.len = fieldlen-2;
+    if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
+        fieldlen = sdslen(spat)-(f-spat)-2;
+        fieldobj = createStringObject(f+2,fieldlen);
     } else {
         fieldlen = 0;
     }
 
+    /* Perform the '*' substitution. */
     prefixlen = p-spat;
     sublen = sdslen(ssub);
-    postfixlen = sdslen(spat)-(prefixlen+1)-fieldlen;
-    memcpy(keyname.buf,spat,prefixlen);
-    memcpy(keyname.buf+prefixlen,ssub,sublen);
-    memcpy(keyname.buf+prefixlen+sublen,p+1,postfixlen);
-    keyname.buf[prefixlen+sublen+postfixlen] = '\0';
-    keyname.len = prefixlen+sublen+postfixlen;
-    decrRefCount(subst);
+    postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
+    keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
+    k = keyobj->ptr;
+    memcpy(k,spat,prefixlen);
+    memcpy(k+prefixlen,ssub,sublen);
+    memcpy(k+prefixlen+sublen,p+1,postfixlen);
+    decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    initStaticStringObject(keyobj,((char*)&keyname)+(sizeof(struct sdshdr)));
-    o = lookupKeyRead(db,&keyobj);
-    if (o == NULL) return NULL;
+    o = lookupKeyRead(db,keyobj);
+    if (o == NULL) goto noobj;
 
-    if (fieldlen > 0) {
-        if (o->type != REDIS_HASH || fieldname.len < 1) return NULL;
+    if (fieldobj) {
+        if (o->type != REDIS_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. This operation
          * already increases the refcount of the returned object. */
-        initStaticStringObject(fieldobj,((char*)&fieldname)+(sizeof(struct sdshdr)));
-        o = hashTypeGetObject(o, &fieldobj);
+        o = hashTypeGetObject(o, fieldobj);
     } else {
-        if (o->type != REDIS_STRING) return NULL;
+        if (o->type != REDIS_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
         incrRefCount(o);
     }
-
+    decrRefCount(keyobj);
+    if (fieldobj) decrRefCount(fieldobj);
     return o;
+
+noobj:
+    decrRefCount(keyobj);
+    if (fieldlen) decrRefCount(fieldobj);
+    return NULL;
 }
 
 /* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with
@@ -141,11 +151,7 @@ void sortCommand(redisClient *c) {
 
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
-    if (sortval == NULL) {
-        addReply(c,shared.emptymultibulk);
-        return;
-    }
-    if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
+    if (sortval && sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
         sortval->type != REDIS_ZSET)
     {
         addReply(c,shared.wrongtypeerr);
@@ -161,7 +167,10 @@ void sortCommand(redisClient *c) {
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroied */
-    incrRefCount(sortval);
+    if (sortval)
+        incrRefCount(sortval);
+    else
+        sortval = createListObject();
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
@@ -200,7 +209,8 @@ void sortCommand(redisClient *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == REDIS_ZSET) zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
+    if (sortval->type == REDIS_ZSET)
+        zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
 
     /* Load the sorting vector with all the objects to sort */
     switch(sortval->type) {
@@ -366,12 +376,9 @@ void sortCommand(redisClient *c) {
                 }
             }
         }
-        setKey(c->db,storekey,sobj);
+        if (outputlen) setKey(c->db,storekey,sobj);
         decrRefCount(sobj);
-        /* Note: we add 1 because the DB is dirty anyway since even if the
-         * SORT result is empty a new key is set and maybe the old content
-         * replaced. */
-        server.dirty += 1+outputlen;
+        server.dirty += outputlen;
         addReplyLongLong(c,outputlen);
     }
 

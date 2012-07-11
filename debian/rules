@@ -2,6 +2,10 @@
 
 unexport CFLAGS
 
+ifneq (,$(filter $(shell dpkg-architecture -qDEB_HOST_ARCH),armel hurd-i386 kfreebsd-amd64 kfreebsd-i386 s390 sparc))
+export FORCE_LIBC_MALLOC = yes
+endif
+
 %:
 	dh $@
 
@@ -10,6 +14,6 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 
-override_dh_auto_clean:
-	rm -rf mkreleasehdr.sh
-	dh_auto_clean
+clean:
+	dh $@
+	rm -f src/release.h

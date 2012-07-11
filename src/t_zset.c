@@ -17,7 +17,7 @@
 /* This skiplist implementation is almost a C translation of the original
  * algorithm described by William Pugh in "Skip Lists: A Probabilistic
  * Alternative to Balanced Trees", modified in three ways:
- * a) this implementation allows for repeated values.
+ * a) this implementation allows for repeated scores.
  * b) the comparison is not just by key (our 'score') but by satellite data.
  * c) there is a back pointer, so it's a doubly linked list with the back
  * pointers being only at "level 1". This allows to traverse the list
@@ -76,6 +76,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
+    redisAssert(!isnan(score));
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
@@ -503,7 +504,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
         return 0;
 
     p = ziplistIndex(zl,-1); /* Last score. */
-    redisAssert(p != NULL);
+    if (p == NULL) return 0; /* Empty sorted set */
     score = zzlGetScore(p);
     if (!zslValueGteMin(score,range))
         return 0;
@@ -1255,13 +1256,16 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     if (val->flags & OPVAL_DIRTY_ROBJ)
         decrRefCount(val->ele);
 
-    bzero(val,sizeof(zsetopval));
+    memset(val,0,sizeof(zsetopval));
 
     if (op->type == REDIS_SET) {
         iterset *it = &op->iter.set;
         if (op->encoding == REDIS_ENCODING_INTSET) {
-            if (!intsetGet(it->is.is,it->is.ii,(int64_t*)&val->ell))
+            int64_t ell;
+
+            if (!intsetGet(it->is.is,it->is.ii,&ell))
                 return 0;
+            val->ell = ell;
             val->score = 1.0;
 
             /* Move to next element. */
@@ -1547,6 +1551,8 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 double score, value;
 
                 score = src[0].weight * zval.score;
+                if (isnan(score)) score = 0;
+
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
@@ -1589,6 +1595,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                 /* Initialize score */
                 score = src[i].weight * zval.score;
+                if (isnan(score)) score = 0;
 
                 /* Because the inputs are sorted by size, it's only possible
                  * for sets at larger indices to hold this element. */
