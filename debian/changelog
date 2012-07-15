@@ -1,9 +1,9 @@
-redis (2:2.4.15-1~bpo60+2) UNRELEASED; urgency=low
+redis (2:2.4.15-1~bpo60+2) squeeze-backports; urgency=low
 
   * Rebuild without requiring libjemalloc-dev. Thanks to Jan Wagner
     <waja@cyconet.org>.
 
- -- Chris Lamb <lamby@debian.org>  Sun, 15 Jul 2012 16:46:16 -0700
+ -- Chris Lamb <lamby@debian.org>  Sun, 15 Jul 2012 16:49:16 -0700
 
 redis (2:2.4.15-1~bpo60+1) squeeze-backports; urgency=low
 
