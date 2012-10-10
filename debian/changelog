@@ -1,6 +1,7 @@
 redis (2:2.4.17-1) UNRELEASED; urgency=low
 
   * New upstream release.
+  * Bump Standards-Version to 3.9.3.
 
  -- Chris Lamb <lamby@debian.org>  Wed, 10 Oct 2012 21:07:52 +0100
 
