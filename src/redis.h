@@ -61,6 +61,9 @@
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
+#define REDIS_RUN_ID_SIZE 40
+#define REDIS_DEFAULT_SLAVE_PRIORITY 100
+
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
@@ -351,6 +354,7 @@ typedef struct redisClient {
     int repldbfd;           /* replication DB file descriptor */
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
+    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bpop;   /* blocking state */
     list *io_keys;          /* Keys this client is waiting to be loaded from the
@@ -407,6 +411,7 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
+    char runid[REDIS_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
     time_t stat_starttime;          /* server start time */
@@ -475,6 +480,7 @@ struct redisServer {
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     time_t repl_down_since; /* unix time at which link with master went down */
+    int slave_priority;             /* Reported in INFO and used by Sentinel. */
     /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;
@@ -1071,6 +1077,7 @@ void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
+void replconfCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
