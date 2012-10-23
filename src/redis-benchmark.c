@@ -201,7 +201,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 if (config.requests_finished < config.requests)
                     config.latency[config.requests_finished++] = c->latency;
                 c->pending--;
-                if (c->pending == 0) clientDone(c);
+                if (c->pending == 0) {
+                    clientDone(c);
+                    break;
+                }
             } else {
                 break;
             }
@@ -263,6 +266,8 @@ static client createClient(char *cmd, size_t len) {
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
     }
+    /* Suppress hiredis cleanup of unused buffers for max speed. */
+    c->context->reader->maxbuf = 0;
     /* Queue N requests accordingly to the pipeline size. */
     c->obuf = sdsempty();
     for (j = 0; j < config.pipeline; j++)
@@ -511,7 +516,7 @@ int main(int argc, const char **argv) {
     config.numclients = 50;
     config.requests = 10000;
     config.liveclients = 0;
-    config.el = aeCreateEventLoop();
+    config.el = aeCreateEventLoop(1024*10);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
     config.datasize = 3;
