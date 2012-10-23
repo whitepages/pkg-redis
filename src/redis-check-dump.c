@@ -20,6 +20,7 @@
 #define REDIS_LIST_ZIPLIST 10
 #define REDIS_SET_INTSET 11
 #define REDIS_ZSET_ZIPLIST 12
+#define REDIS_HASH_ZIPLIST 13
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -30,6 +31,7 @@
 #define REDIS_ENCODING_HT 3     /* Encoded as an hash table */
 
 /* Object types only used for dumping to disk */
+#define REDIS_EXPIRETIME_MS 252
 #define REDIS_EXPIRETIME 253
 #define REDIS_SELECTDB 254
 #define REDIS_EOF 255
@@ -107,6 +109,19 @@ static double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* store string types for output */
 static char types[256][16];
 
+/* Prototypes */
+uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
+
+/* Return true if 't' is a valid object type. */
+int checkType(unsigned char t) {
+    /* In case a new object type is added, update the following 
+     * condition as necessary. */
+    return
+        (t >= REDIS_HASH_ZIPMAP && t <= REDIS_HASH_ZIPLIST) ||
+        t <= REDIS_HASH ||
+        t >= REDIS_EXPIRETIME_MS;
+}
+
 /* when number of bytes to read is negative, do a peek */
 int readBytes(void *target, long num) {
     char peek = (num < 0) ? 1 : 0;
@@ -136,10 +151,10 @@ int processHeader() {
     }
 
     dump_version = (int)strtol(buf + 5, NULL, 10);
-    if (dump_version < 1 || dump_version > 2) {
+    if (dump_version < 1 || dump_version > 6) {
         ERROR("Unknown RDB format version: %d\n", dump_version);
     }
-    return 1;
+    return dump_version;
 }
 
 int loadType(entry *e) {
@@ -148,7 +163,7 @@ int loadType(entry *e) {
     /* this byte needs to qualify as type */
     unsigned char t;
     if (readBytes(&t, 1)) {
-        if (t <= 4 || (t >=9 && t <= 12) || t >= 253) {
+        if (checkType(t)) {
             e->type = t;
             return 1;
         } else {
@@ -164,16 +179,18 @@ int loadType(entry *e) {
 
 int peekType() {
     unsigned char t;
-    if (readBytes(&t, -1) && (t <= 4 || (t >=9 && t <= 12) || t >= 253))
+    if (readBytes(&t, -1) && (checkType(t)))
         return t;
     return -1;
 }
 
 /* discard time, just consume the bytes */
-int processTime() {
+int processTime(int type) {
     uint32_t offset = CURR_OFFSET;
-    unsigned char t[4];
-    if (readBytes(t, 4)) {
+    unsigned char t[8];
+    int timelen = (type == REDIS_EXPIRETIME_MS) ? 8 : 4;
+
+    if (readBytes(t,timelen)) {
         return 1;
     } else {
         SHIFT_ERROR(offset, "Could not read time");
@@ -384,6 +401,7 @@ int loadPair(entry *e) {
     case REDIS_LIST_ZIPLIST:
     case REDIS_SET_INTSET:
     case REDIS_ZSET_ZIPLIST:
+    case REDIS_HASH_ZIPLIST:
         if (!processStringObject(NULL)) {
             SHIFT_ERROR(offset, "Error reading entry value");
             return 0;
@@ -467,8 +485,9 @@ entry loadEntry() {
         return e;
     } else {
         /* optionally consume expire */
-        if (e.type == REDIS_EXPIRETIME) {
-            if (!processTime()) return e;
+        if (e.type == REDIS_EXPIRETIME || 
+            e.type == REDIS_EXPIRETIME_MS) {
+            if (!processTime(e.type)) return e;
             if (!loadType(&e)) return e;
         }
 
@@ -555,7 +574,16 @@ void printErrorStack(entry *e) {
 void process() {
     uint64_t num_errors = 0, num_valid_ops = 0, num_valid_bytes = 0;
     entry entry;
-    processHeader();
+    int dump_version = processHeader();
+
+    /* Exclude the final checksum for RDB >= 5. Will be checked at the end. */
+    if (dump_version >= 5) {
+        if (positions[0].size < 8) {
+            printf("RDB version >= 5 but no room for checksum.\n");
+            exit(1);
+        }
+        positions[0].size -= 8;;
+    }
 
     level = 1;
     while(positions[0].offset < positions[0].size) {
@@ -618,6 +646,26 @@ void process() {
         printErrorStack(&entry);
 
         num_errors++;
+    }
+
+    /* Verify checksum */
+    if (dump_version >= 5) {
+        uint64_t crc = crc64(0,positions[0].data,positions[0].size);
+        uint64_t crc2;
+        unsigned char *p = (unsigned char*)positions[0].data+positions[0].size;
+        crc2 = ((uint64_t)p[0] << 0) |
+               ((uint64_t)p[1] << 8) |
+               ((uint64_t)p[2] << 16) |
+               ((uint64_t)p[3] << 24) |
+               ((uint64_t)p[4] << 32) |
+               ((uint64_t)p[5] << 40) |
+               ((uint64_t)p[6] << 48) |
+               ((uint64_t)p[7] << 56);
+        if (crc != crc2) {
+            SHIFT_ERROR(positions[0].offset, "RDB CRC64 does not match.");
+        } else {
+            printf("CRC64 checksum is OK\n");
+        }
     }
 
     /* print summary on errors */
