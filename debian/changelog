@@ -3,6 +3,7 @@ redis (2:2.6.0-1) UNRELEASED; urgency=low
   * New upstream release.
   * Update 02-fix-ftbfs-on-kfreebsd.diff.
   * Update 03-use-system-jemalloc.diff.
+  * Update configuration file.
 
  -- Chris Lamb <lamby@debian.org>  Tue, 23 Oct 2012 14:19:22 +0100
 
