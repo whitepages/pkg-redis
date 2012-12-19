@@ -1,3 +1,10 @@
+redis (2:2.6.0-2) UNRELEASED; urgency=low
+
+  * Add missing "status" command from usage. Thanks to Dererk
+    <dererk@debian.org>. (Closes: #696339)
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 19 Dec 2012 21:39:12 +0000
+
 redis (2:2.6.0-1) unstable; urgency=low
 
   * New upstream release.
