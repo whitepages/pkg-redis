@@ -1,12 +1,13 @@
-redis (2:2.6.0-2) UNRELEASED; urgency=low
+redis (2:2.6.7-1) UNRELEASED; urgency=low
 
+  * New upstream release.
   * Add missing "status" command from usage. Thanks to Dererk
     <dererk@debian.org>. (Closes: #696339)
   * Enable building on kfreebsd-amd64 (and possibly kfreebsd-i386 and
     hurd-i386) by not depending on 'jemalloc' which would not be used anyway.
     Thanks to Jeff Epler <jepler@unpythonic.net>. (Closes: #696618)
 
- -- Chris Lamb <lamby@debian.org>  Wed, 19 Dec 2012 21:39:12 +0000
+ -- Chris Lamb <lamby@debian.org>  Fri, 28 Dec 2012 16:58:24 +0000
 
 redis (2:2.6.0-1) unstable; urgency=low
 
