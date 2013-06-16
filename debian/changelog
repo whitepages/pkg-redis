@@ -2,6 +2,7 @@ redis (2:2.6.13-1) UNRELEASED; urgency=low
 
   * New upstream release.
     - Sync debian/redis.conf.
+    - Update 02-fix-ftbfs-on-kfreebsd.diff.
 
  -- Chris Lamb <lamby@debian.org>  Mon, 17 Jun 2013 00:42:49 +0100
 
