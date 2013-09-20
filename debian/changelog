@@ -1,9 +1,9 @@
-redis (2:2.6.16-3) UNRELEASED; urgency=low
+redis (2:2.6.16-3) unstable; urgency=low
 
   * Add missing Replaces and Breaks to redis-tools. Thanks to Andreas Beckmann
     (anbe). (Closes: #723703)
 
- -- Chris Lamb <lamby@debian.org>  Thu, 19 Sep 2013 11:00:50 +0100
+ -- Chris Lamb <lamby@debian.org>  Fri, 20 Sep 2013 14:35:24 +0100
 
 redis (2:2.6.16-2) unstable; urgency=low
 
