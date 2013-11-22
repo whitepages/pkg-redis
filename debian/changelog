@@ -1,3 +1,9 @@
+redis (2:2.8.0-1) UNRELEASED; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 22 Nov 2013 16:26:10 +0000
+
 redis (2:2.6.16-3) unstable; urgency=low
 
   * Add missing Replaces and Breaks to redis-tools. Thanks to Andreas Beckmann
