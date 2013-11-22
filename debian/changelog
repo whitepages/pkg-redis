@@ -4,6 +4,7 @@ redis (2:2.8.0-1) UNRELEASED; urgency=low
     - Update debian/patches/02-fix-ftbfs-on-kfreebsd.
     - Update debian/patches/03-use-system-jemalloc.diff.
     - Update debian/redis.conf
+  * Bump Standards-Version to 3.9.4.
 
  -- Chris Lamb <lamby@debian.org>  Fri, 22 Nov 2013 16:26:10 +0000
 
