@@ -166,14 +166,14 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
-long long emptyDb() {
+long long emptyDb(void(callback)(void*)) {
     int j;
     long long removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         removed += dictSize(server.db[j].dict);
-        dictEmpty(server.db[j].dict);
-        dictEmpty(server.db[j].expires);
+        dictEmpty(server.db[j].dict,callback);
+        dictEmpty(server.db[j].expires,callback);
     }
     return removed;
 }
@@ -209,14 +209,14 @@ void signalFlushedDb(int dbid) {
 void flushdbCommand(redisClient *c) {
     server.dirty += dictSize(c->db->dict);
     signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict);
-    dictEmpty(c->db->expires);
+    dictEmpty(c->db->dict,NULL);
+    dictEmpty(c->db->expires,NULL);
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
     signalFlushedDb(-1);
-    server.dirty += emptyDb();
+    server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
@@ -360,7 +360,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
 }
 
 /* This command implements SCAN, HSCAN and SSCAN commands.
- * If object 'o' is passed, then it must be an Hash or Set object, otherwise
+ * If object 'o' is passed, then it must be a Hash or Set object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
  * the current database.
  *
@@ -368,7 +368,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
  * the client arguments vector is a key so it skips it before iterating
  * in order to parse options.
  *
- * In the case of an Hash object the function returns both the field and value
+ * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     int rv;
@@ -423,12 +423,12 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 2: Iterate the collection.
      *
      * Note that if the object is encoded with a ziplist, intset, or any other
-     * representation that is not an hash table, we are sure that it is also
+     * representation that is not a hash table, we are sure that it is also
      * composed of a small number of elements. So to avoid taking state we
      * just return everything inside the object in a single call, setting the
      * cursor to zero to signal the end of the iteration. */
 
-    /* Handle the case of an hash table. */
+    /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
         ht = c->db->dict;
@@ -510,7 +510,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             listDelNode(keys, node);
         }
 
-        /* If this is an hash or a sorted set, we have a flat list of
+        /* If this is a hash or a sorted set, we have a flat list of
          * key-value elements, so if this element was filtered, remove the
          * value, or skip it if it was not filtered: we only match keys. */
         if (o && (o->type == REDIS_ZSET || o->type == REDIS_HASH)) {
