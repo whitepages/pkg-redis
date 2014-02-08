@@ -51,10 +51,9 @@
 #include <unistd.h>
 #include "rio.h"
 #include "util.h"
+#include "crc64.h"
 #include "config.h"
 #include "redis.h"
-
-uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
@@ -87,6 +86,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     if (r->io.file.autosync &&
         r->io.file.buffered >= r->io.file.autosync)
     {
+        fflush(r->io.file.fp);
         aof_fsync(fileno(r->io.file.fp));
         r->io.file.buffered = 0;
     }
@@ -109,6 +109,8 @@ static const rio rioBufferIO = {
     rioBufferTell,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
@@ -118,6 +120,8 @@ static const rio rioFileIO = {
     rioFileTell,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 

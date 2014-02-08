@@ -84,7 +84,7 @@ void dumpCommand(redisClient *c) {
 
 /* RESTORE key ttl serialized-value */
 void restoreCommand(redisClient *c) {
-    long ttl;
+    long long ttl;
     rio payload;
     int type;
     robj *obj;
@@ -96,7 +96,7 @@ void restoreCommand(redisClient *c) {
     }
 
     /* Check if the TTL value makes sense */
-    if (getLongFromObjectOrReply(c,c->argv[2],&ttl,NULL) != REDIS_OK) {
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&ttl,NULL) != REDIS_OK) {
         return;
     } else if (ttl < 0) {
         addReplyError(c,"Invalid TTL value, must be >= 0");
@@ -104,7 +104,8 @@ void restoreCommand(redisClient *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr)) == REDIS_ERR) {
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr)) == REDIS_ERR)
+    {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;
     }
@@ -139,7 +140,7 @@ void migrateCommand(redisClient *c) {
         return;
     if (getLongFromObjectOrReply(c,c->argv[4],&dbid,NULL) != REDIS_OK)
         return;
-    if (timeout <= 0) timeout = 1000;
+    if (timeout <= 0) timeout = 1;
 
     /* Check if the key is here. If not we reply with success as there is
      * nothing to migrate (for instance the key expired in the meantime), but
@@ -157,8 +158,7 @@ void migrateCommand(redisClient *c) {
             server.neterr);
         return;
     }
-    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
-        close(fd);
+    if ((aeWait(fd,AE_WRITABLE,timeout*1000) & AE_WRITABLE) == 0) {
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         return;
     }

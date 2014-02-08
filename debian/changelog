@@ -1,3 +1,78 @@
+redis (2:2.8.5-1) unstable; urgency=low
+
+  * New upstream release.
+  * Update debian/redis.conf to include new tcp-backlog option.
+
+ -- Chris Lamb <lamby@debian.org>  Sat, 08 Feb 2014 12:01:48 +0000
+
+redis (2:2.8.4-2) unstable; urgency=low
+
+  * Symlink redis-sentinel to redis-server as it's the same binary.
+  * Install sentinel.conf.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 14 Jan 2014 12:31:14 +0000
+
+redis (2:2.8.4-1) unstable; urgency=low
+
+  * New upstream version.
+  * Sync debian/redis.conf.
+  * Also ship redis-sentinel (Closes: #735272)
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 14 Jan 2014 10:42:09 +0000
+
+redis (2:2.8.2-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 06 Dec 2013 14:37:54 +0000
+
+redis (2:2.8.0-1) unstable; urgency=low
+
+  * New upstream release.
+    - Update debian/patches/02-fix-ftbfs-on-kfreebsd.
+    - Update debian/patches/03-use-system-jemalloc.diff.
+    - Update debian/redis.conf
+  * Bump Standards-Version to 3.9.4.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 22 Nov 2013 16:51:55 +0000
+
+redis (2:2.6.16-3) unstable; urgency=low
+
+  * Add missing Replaces and Breaks to redis-tools. Thanks to Andreas Beckmann
+    (anbe). (Closes: #723703)
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 20 Sep 2013 14:35:24 +0100
+
+redis (2:2.6.16-2) unstable; urgency=low
+
+  * Completely rework and refresh debian/copyright. (Closes: #723162)
+  * Update website in debian/copyright.
+  * Drop client library references from debian/copyright (dropped in
+    2:1.1.90~beta-1).
+  * Update main copyright year.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 17 Sep 2013 19:08:01 +0100
+
+redis (2:2.6.16-1) unstable; urgency=low
+
+  * New upstream release.
+  * Split non-server binaries into redis-tools package. (Closes: #723006)
+  * Update debian/watch.
+
+ -- Chris Lamb <lamby@debian.org>  Mon, 16 Sep 2013 09:53:49 +0100
+
+redis (2:2.6.14-2) unstable; urgency=low
+
+  * Source /lib/lsb/init-functions in initscript for systemd compatibility.
+
+ -- Chris Lamb <lamby@debian.org>  Mon, 12 Aug 2013 16:17:47 +0100
+
+redis (2:2.6.14-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 06 Aug 2013 12:14:12 +0100
+
 redis (2:2.6.13-1~bpo70+1) wheezy-backports; urgency=low
 
   * Rebuild for wheezy-backports.
