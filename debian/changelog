@@ -1,6 +1,7 @@
 redis (2:2.8.6-1~bpo70+1) wheezy-backports; urgency=low
 
-  * Rebuild for wheezy-backports.
+  * Rebuild for wheezy-backports
+    - In a clean environment; mea culpa (Closes: #740641)
 
  -- Chris Lamb <lamby@debian.org>  Mon, 03 Mar 2014 21:59:33 +0000
 
