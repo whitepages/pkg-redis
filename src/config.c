@@ -1419,7 +1419,7 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
      * resulting into no RDB persistence as expected. */
     for (j = 0; j < server.saveparamslen; j++) {
         line = sdscatprintf(sdsempty(),"save %ld %d",
-            server.saveparams[j].seconds, server.saveparams[j].changes);
+            (long) server.saveparams[j].seconds, server.saveparams[j].changes);
         rewriteConfigRewriteLine(state,"save",line,1);
     }
     /* Mark "save" as processed in case server.saveparamslen is zero. */
@@ -1780,6 +1780,7 @@ void configCommand(redisClient *c) {
             redisLog(REDIS_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
         } else {
+            redisLog(REDIS_WARNING,"CONFIG REWRITE executed with success.");
             addReply(c,shared.ok);
         }
     } else {
