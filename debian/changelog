@@ -1,3 +1,9 @@
+redis (2:2.8.8-3) UNRELEASED; urgency=low
+
+  * Drop copytruncate from logrotate stanza.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 16 Apr 2014 01:47:13 +0100
+
 redis (2:2.8.8-2) unstable; urgency=low
 
   * Add systemd support. Thanks to Wasif Malik <wmalik.ml@gmail.com>.
