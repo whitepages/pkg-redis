@@ -93,6 +93,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
+    if (val->type == REDIS_LIST) signalListAsReady(db, key);
  }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -166,6 +167,44 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
+/* Prepare the string object stored at 'key' to be modified destructively
+ * to implement commands like SETBIT or APPEND.
+ *
+ * An object is usually ready to be modified unless one of the two conditions
+ * are true:
+ *
+ * 1) The object 'o' is shared (refcount > 1), we don't want to affect
+ *    other users.
+ * 2) The object encoding is not "RAW".
+ *
+ * If the object is found in one of the above conditions (or both) by the
+ * function, an unshared / not-encoded copy of the string object is stored
+ * at 'key' in the specified 'db'. Otherwise the object 'o' itself is
+ * returned.
+ *
+ * USAGE:
+ *
+ * The object 'o' is what the caller already obtained by looking up 'key'
+ * in 'db', the usage pattern looks like this:
+ *
+ * o = lookupKeyWrite(db,key);
+ * if (checkType(c,o,REDIS_STRING)) return;
+ * o = dbUnshareStringValue(db,key,o);
+ *
+ * At this point the caller is ready to modify the object, for example
+ * using an sdscat() call to append some data, or anything else.
+ */
+robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+    redisAssert(o->type == REDIS_STRING);
+    if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
+        robj *decoded = getDecodedObject(o);
+        o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
+        decrRefCount(decoded);
+        dbOverwrite(db,key,o);
+    }
+    return o;
+}
+
 long long emptyDb(void(callback)(void*)) {
     int j;
     long long removed = 0;
@@ -236,6 +275,7 @@ void delCommand(redisClient *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+        expireIfNeeded(c->db,c->argv[j]);
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
