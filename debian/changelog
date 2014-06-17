@@ -2,6 +2,7 @@ redis (2:2.8.8-3) UNRELEASED; urgency=low
 
   * Drop copytruncate from logrotate stanza.
   * Prefer status_of_proc over `start-stop-daemon --stop --signal 0 ...`
+    (Closes: #751839)
 
  -- Chris Lamb <lamby@debian.org>  Wed, 16 Apr 2014 01:47:13 +0100
 
