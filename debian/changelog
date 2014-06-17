@@ -1,6 +1,7 @@
 redis (2:2.8.11-1) UNRELEASED; urgency=low
 
   * New upstream release.
+    - Synchronise ./debian/redis.conf with ./redis.conf.
   * Drop copytruncate from logrotate stanza.
   * Prefer status_of_proc over `start-stop-daemon --stop --signal 0 ...`
     (Closes: #751839)
