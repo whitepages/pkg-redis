@@ -1,4 +1,4 @@
-redis (2:2.8.11-1) UNRELEASED; urgency=low
+redis (2:2.8.11-1) unstable; urgency=low
 
   * New upstream release.
     - Synchronise ./debian/redis.conf with ./redis.conf.
@@ -6,7 +6,7 @@ redis (2:2.8.11-1) UNRELEASED; urgency=low
   * Prefer status_of_proc over `start-stop-daemon --stop --signal 0 ...`
     (Closes: #751839)
 
- -- Chris Lamb <lamby@debian.org>  Tue, 17 Jun 2014 16:33:15 +0100
+ -- Chris Lamb <lamby@debian.org>  Tue, 17 Jun 2014 16:36:58 +0100
 
 redis (2:2.8.8-2) unstable; urgency=low
 
