@@ -1,9 +1,9 @@
-redis (2:2.8.12-1) UNRELEASED; urgency=low
+redis (2:2.8.12-1) unstable; urgency=low
 
   * New upstream release.
     - Synchronise ./debian/redis.conf with ./redis.conf.
 
- -- Chris Lamb <lamby@debian.org>  Sat, 05 Jul 2014 17:11:21 +0100
+ -- Chris Lamb <lamby@debian.org>  Sat, 05 Jul 2014 17:15:01 +0100
 
 redis (2:2.8.11-1) unstable; urgency=low
 
