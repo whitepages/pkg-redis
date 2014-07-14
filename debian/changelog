@@ -1,11 +1,11 @@
-redis (2:2.8.13-1) UNRELEASED; urgency=low
+redis (2:2.8.13-1) unstable; urgency=low
 
   * New upstream release.
   * Synchronise ./debian/redis.conf with ./redis.conf.
   * Update 03-use-system-jemalloc.diff.
   * Fix FTBFS under kfreebsd (Closes: #754634)
 
- -- Chris Lamb <lamby@debian.org>  Mon, 14 Jul 2014 22:12:46 +0100
+ -- Chris Lamb <lamby@debian.org>  Mon, 14 Jul 2014 22:49:15 +0100
 
 redis (2:2.8.12-1) unstable; urgency=low
 
