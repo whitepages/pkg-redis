@@ -1,4 +1,4 @@
-redis (2:2.8.13-3) UNRELEASED; urgency=low
+redis (2:2.8.13-3) unstable; urgency=low
 
   * Correct permissions of our /var directories by chowning them recursively.
     This is necessary, at least temporarily, as systemd users were previously
@@ -7,7 +7,7 @@ redis (2:2.8.13-3) UNRELEASED; urgency=low
     accomodate users who are not running as redis:redis but I think that's
     overkill. (Closes: #756709)
 
- -- Chris Lamb <lamby@debian.org>  Tue, 05 Aug 2014 17:12:23 +0100
+ -- Chris Lamb <lamby@debian.org>  Tue, 05 Aug 2014 17:16:53 +0100
 
 redis (2:2.8.13-2) unstable; urgency=low
 
