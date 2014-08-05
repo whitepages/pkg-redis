@@ -1,3 +1,14 @@
+redis (2:2.8.13-3) UNRELEASED; urgency=low
+
+  * Correct permissions of our /var directories by chowning them recursively.
+    This is necessary, at least temporarily, as systemd users were previously
+    running the daemon as root causing the files in those dirs to be owned by
+    that user. We could be clever and only chown files owned by root to
+    accomodate users who are not running as redis:redis but I think that's
+    overkill. (Closes: #756709)
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 05 Aug 2014 17:12:23 +0100
+
 redis (2:2.8.13-2) unstable; urgency=low
 
   * Under systemd, run under redis:redis. (Closes: #756621)
