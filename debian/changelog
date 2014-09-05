@@ -1,6 +1,9 @@
 redis (2:2.8.14-1) UNRELEASED; urgency=low
 
   * New upstream release.
+  * Guillaume Delacour:
+    - Use dpkg-buildflags CFLAGS, CPPFLAGS (patch upstream Makefile) and
+      LDFLAGS, also use pie and relro via DEB_BUILD_MAINT_OPTIONS
 
  -- Chris Lamb <lamby@debian.org>  Fri, 05 Sep 2014 13:48:08 +0100
 
