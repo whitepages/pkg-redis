@@ -6,6 +6,7 @@ redis (2:2.8.14-1) UNRELEASED; urgency=low
       LDFLAGS, also use pie and relro via DEB_BUILD_MAINT_OPTIONS
     - Call make V=1 to show gcc command lines (blhc) and enable parallel build
   * Sync debian/redis.conf and redis.conf.
+  * Refresh 02-fix-ftbfs-on-kfreebsd patch.
 
  -- Chris Lamb <lamby@debian.org>  Fri, 05 Sep 2014 13:48:08 +0100
 
