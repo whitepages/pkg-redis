@@ -25,6 +25,9 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 
+override_dh_auto_build:
+	dh_auto_build --parallel -- V=1
+
 clean:
 	dh $@
 	rm -f src/release.h
