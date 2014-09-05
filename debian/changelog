@@ -1,4 +1,4 @@
-redis (2:2.8.14-1) UNRELEASED; urgency=low
+redis (2:2.8.14-1) unstable; urgency=low
 
   * New upstream release.
   * Guillaume Delacour:
@@ -8,7 +8,7 @@ redis (2:2.8.14-1) UNRELEASED; urgency=low
   * Sync debian/redis.conf and redis.conf.
   * Refresh 02-fix-ftbfs-on-kfreebsd patch.
 
- -- Chris Lamb <lamby@debian.org>  Fri, 05 Sep 2014 13:48:08 +0100
+ -- Chris Lamb <lamby@debian.org>  Fri, 05 Sep 2014 13:54:51 +0100
 
 redis (2:2.8.13-3) unstable; urgency=low
 
