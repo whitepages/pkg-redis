@@ -1,8 +1,8 @@
-redis (2:2.8.17-1) UNRELEASED; urgency=medium
+redis (2:2.8.17-1) unstable; urgency=medium
 
   * New upstream release.
 
- -- Chris Lamb <lamby@debian.org>  Thu, 09 Oct 2014 11:44:51 +0100
+ -- Chris Lamb <lamby@debian.org>  Thu, 09 Oct 2014 11:47:32 +0100
 
 redis (2:2.8.14-1) unstable; urgency=low
 
