@@ -47,6 +47,7 @@ set ::all_tests {
     unit/dump
     unit/bitops
     unit/memefficiency
+    unit/hyperloglog
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -162,21 +163,6 @@ proc cleanup {} {
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
     if {!$::quiet} {puts "OK"}
-}
-
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {
-            set fd [socket 127.0.0.1 $j]
-        }]} {
-            return $j
-        } else {
-            close $fd
-        }
-    }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
 }
 
 proc test_server_main {} {

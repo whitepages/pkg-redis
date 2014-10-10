@@ -8,7 +8,7 @@ index c16f5e2..d8e2703 100644
 --- a/src/fmacros.h
 +++ b/src/fmacros.h
 @@ -36,7 +36,7 @@
- #define _GNU_SOURCE
+ #define _ALL_SOURCE
  #endif
  
 -#if defined(__linux__) || defined(__OpenBSD__)

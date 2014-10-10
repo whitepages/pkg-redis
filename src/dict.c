@@ -79,12 +79,6 @@ unsigned int dictIntHashFunction(unsigned int key)
     return key;
 }
 
-/* Identity hash function for integer keys */
-unsigned int dictIdentityHashFunction(unsigned int key)
-{
-    return key;
-}
-
 static uint32_t dict_hash_function_seed = 5381;
 
 void dictSetHashFunctionSeed(uint32_t seed) {
@@ -239,7 +233,7 @@ int dictExpand(dict *d, unsigned long size)
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  * Note that a rehashing step consists in moving a bucket (that may have more
- * thank one key as we use chaining) from the old to the new hash table. */
+ * than one key as we use chaining) from the old to the new hash table. */
 int dictRehash(dict *d, int n) {
     if (!dictIsRehashing(d)) return 0;
 
@@ -257,7 +251,7 @@ int dictRehash(dict *d, int n) {
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
-        assert(d->ht[0].size > (unsigned)d->rehashidx);
+        assert(d->ht[0].size > (unsigned long)d->rehashidx);
         while(d->ht[0].table[d->rehashidx] == NULL) d->rehashidx++;
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
@@ -576,7 +570,7 @@ dictEntry *dictNext(dictIterator *iter)
                     iter->fingerprint = dictFingerprint(iter->d);
             }
             iter->index++;
-            if (iter->index >= (signed) ht->size) {
+            if (iter->index >= (long) ht->size) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
                     iter->table++;
                     iter->index = 0;
@@ -695,7 +689,7 @@ static unsigned long rev(unsigned long v) {
  * (where SIZE-1 is always the mask that is equivalent to taking the rest
  *  of the division between the Hash of the key and SIZE).
  *
- * For example if the current hash table size is 64, the mask is
+ * For example if the current hash table size is 16, the mask is
  * (in binary) 1111. The position of a key in the hash table will be always
  * the last four bits of the hash output, and so forth.
  *

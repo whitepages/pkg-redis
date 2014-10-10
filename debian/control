@@ -2,8 +2,8 @@ Source: redis
 Section: database
 Priority: optional
 Maintainer: Chris Lamb <lamby@debian.org>
-Build-Depends: debhelper (>= 7.0.50), libjemalloc-dev [linux-any]
-Standards-Version: 3.9.4
+Build-Depends: debhelper (>= 7.0.50), libjemalloc-dev [linux-any], dh-systemd (>= 1.5)
+Standards-Version: 3.9.5
 Homepage: http://redis.io/
 Vcs-Git: git://github.com/lamby/pkg-redis.git
 Vcs-Browser: https://github.com/lamby/pkg-redis

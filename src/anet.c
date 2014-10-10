@@ -117,6 +117,8 @@ int anetKeepAlive(char *err, int fd, int interval)
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
     }
+#else
+    ((void) interval); /* Avoid unused var warning for non Linux systems. */
 #endif
 
     return ANET_OK;
@@ -137,7 +139,7 @@ int anetEnableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 1);
 }
 
-int anetDisableTcpNoDelay(char *err, int fd) 
+int anetDisableTcpNoDelay(char *err, int fd)
 {
     return anetSetTcpNoDelay(err, fd, 0);
 }
@@ -472,7 +474,7 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
@@ -491,7 +493,7 @@ int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
         return ANET_ERR;
 
     return fd;

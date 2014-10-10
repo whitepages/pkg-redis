@@ -93,6 +93,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
+    if (val->type == REDIS_LIST) signalListAsReady(db, key);
  }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -102,7 +103,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * The program is aborted if the key was not already present. */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     struct dictEntry *de = dictFind(db->dict,key->ptr);
-    
+
     redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
 }
@@ -164,6 +165,44 @@ int dbDelete(redisDb *db, robj *key) {
     } else {
         return 0;
     }
+}
+
+/* Prepare the string object stored at 'key' to be modified destructively
+ * to implement commands like SETBIT or APPEND.
+ *
+ * An object is usually ready to be modified unless one of the two conditions
+ * are true:
+ *
+ * 1) The object 'o' is shared (refcount > 1), we don't want to affect
+ *    other users.
+ * 2) The object encoding is not "RAW".
+ *
+ * If the object is found in one of the above conditions (or both) by the
+ * function, an unshared / not-encoded copy of the string object is stored
+ * at 'key' in the specified 'db'. Otherwise the object 'o' itself is
+ * returned.
+ *
+ * USAGE:
+ *
+ * The object 'o' is what the caller already obtained by looking up 'key'
+ * in 'db', the usage pattern looks like this:
+ *
+ * o = lookupKeyWrite(db,key);
+ * if (checkType(c,o,REDIS_STRING)) return;
+ * o = dbUnshareStringValue(db,key,o);
+ *
+ * At this point the caller is ready to modify the object, for example
+ * using an sdscat() call to append some data, or anything else.
+ */
+robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+    redisAssert(o->type == REDIS_STRING);
+    if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
+        robj *decoded = getDecodedObject(o);
+        o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
+        decrRefCount(decoded);
+        dbOverwrite(db,key,o);
+    }
+    return o;
 }
 
 long long emptyDb(void(callback)(void*)) {
@@ -236,6 +275,7 @@ void delCommand(redisClient *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+        expireIfNeeded(c->db,c->argv[j]);
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
@@ -371,9 +411,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
-    int rv;
     int i, j;
-    char buf[REDIS_LONGSTR_SIZE];
     list *keys = listCreate();
     listNode *node, *nextnode;
     long count = 10;
@@ -445,6 +483,11 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
 
     if (ht) {
         void *privdata[2];
+        /* We set the max number of iterations to ten times the specified
+         * COUNT, so if the hash table is in a pathological state (very
+         * sparsely populated) we avoid to block too much time at the cost
+         * of returning no or very few elements. */
+        long maxiterations = count*10;
 
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
@@ -453,7 +496,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
         privdata[1] = o;
         do {
             cursor = dictScan(ht, cursor, scanCallback, privdata);
-        } while (cursor && listLength(keys) < count);
+        } while (cursor &&
+              maxiterations-- &&
+              listLength(keys) < (unsigned long)count);
     } else if (o->type == REDIS_SET) {
         int pos = 0;
         int64_t ll;
@@ -527,9 +572,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
 
     /* Step 4: Reply to the client. */
     addReplyMultiBulkLen(c, 2);
-    rv = snprintf(buf, sizeof(buf), "%lu", cursor);
-    redisAssert(rv < sizeof(buf));
-    addReplyBulkCBuffer(c, buf, rv);
+    addReplyBulkLongLong(c,cursor);
 
     addReplyMultiBulkLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
@@ -657,11 +700,16 @@ void moveCommand(redisClient *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
+    long long dbid;
 
     /* Obtain source and target DB pointers */
     src = c->db;
     srcid = c->db->id;
-    if (selectDb(c,atoi(c->argv[2]->ptr)) == REDIS_ERR) {
+
+    if (getLongLongFromObject(c->argv[2],&dbid) == REDIS_ERR ||
+        dbid < INT_MIN || dbid > INT_MAX ||
+        selectDb(c,dbid) == REDIS_ERR)
+    {
         addReply(c,shared.outofrangeerr);
         return;
     }
@@ -776,7 +824,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
      *
-     * Still we try to return the right information to the caller, 
+     * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return now > when;
