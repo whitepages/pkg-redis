@@ -2,7 +2,7 @@ redis (2:2.8.17-1~bpo70+1) wheezy-backports; urgency=low
 
   * Rebuild for wheezy-backports. (Closes: #764674)
 
- -- Chris Lamb <lamby@debian.org>  Fri, 10 Oct 2014 15:21:14 +0100
+ -- Chris Lamb <lamby@debian.org>  Fri, 10 Oct 2014 15:54:19 +0100
 
 redis (2:2.8.17-1) unstable; urgency=medium
 
