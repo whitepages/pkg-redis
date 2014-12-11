@@ -1,6 +1,7 @@
 redis (2:2.8.18-1) UNRELEASED; urgency=low
 
   * New upstream release.
+    - Sync debian/redis.conf.
   * Attempt to make build reproducible by dropping timestamp/uname name from
     release.h.
 
