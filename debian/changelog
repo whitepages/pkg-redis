@@ -1,4 +1,4 @@
-redis (2:2.8.18-1) UNRELEASED; urgency=low
+redis (2:2.8.18-1) unstable; urgency=low
 
   * New upstream release.
     - Sync debian/redis.conf.
@@ -6,7 +6,7 @@ redis (2:2.8.18-1) UNRELEASED; urgency=low
     release.h.
   * Bump Standards-Version to 3.9.6.
 
- -- Chris Lamb <lamby@debian.org>  Thu, 11 Dec 2014 11:49:30 +0000
+ -- Chris Lamb <lamby@debian.org>  Thu, 11 Dec 2014 12:19:43 +0000
 
 redis (2:2.8.17-1) unstable; urgency=medium
 
