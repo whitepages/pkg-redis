@@ -1,3 +1,32 @@
+/*
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -5,7 +34,10 @@
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
+#include <unistd.h>
 #include <sys/time.h>
+#include <float.h>
+#include <stdint.h>
 
 #include "util.h"
 
@@ -183,35 +215,98 @@ long long memtoll(const char *p, int *err) {
     return val*mul;
 }
 
-/* Convert a long long into a string. Returns the number of
- * characters needed to represent the number, that can be shorter if passed
- * buffer length is not enough to store the whole number. */
-int ll2string(char *s, size_t len, long long value) {
-    char buf[32], *p;
-    unsigned long long v;
-    size_t l;
+/* Return the number of digits of 'v' when converted to string in radix 10.
+ * See ll2string() for more information. */
+uint32_t digits10(uint64_t v) {
+    if (v < 10) return 1;
+    if (v < 100) return 2;
+    if (v < 1000) return 3;
+    if (v < 1000000000000UL) {
+        if (v < 100000000UL) {
+            if (v < 1000000) {
+                if (v < 10000) return 4;
+                return 5 + (v >= 100000);
+            }
+            return 7 + (v >= 10000000UL);
+        }
+        if (v < 10000000000UL) {
+            return 9 + (v >= 1000000000UL);
+        }
+        return 11 + (v >= 100000000000UL);
+    }
+    return 12 + digits10(v / 1000000000000UL);
+}
 
-    if (len == 0) return 0;
-    v = (value < 0) ? -value : value;
-    p = buf+31; /* point to the last character */
-    do {
-        *p-- = '0'+(v%10);
-        v /= 10;
-    } while(v);
-    if (value < 0) *p-- = '-';
-    p++;
-    l = 32-(p-buf);
-    if (l+1 > len) l = len-1; /* Make sure it fits, including the nul term */
-    memcpy(s,p,l);
-    s[l] = '\0';
-    return l;
+/* Convert a long long into a string. Returns the number of
+ * characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ *
+ * Based on the following article (that apparently does not provide a
+ * novel approach but only publicizes an already used technique):
+ *
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
+ *
+ * Modified in order to handle signed integers since the original code was
+ * designed for unsigned integers. */
+int ll2string(char* dst, size_t dstlen, long long svalue) {
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+    int negative;
+    unsigned long long value;
+
+    /* The main loop works with 64bit unsigned integers for simplicity, so
+     * we convert the number here and remember if it is negative. */
+    if (svalue < 0) {
+        if (svalue != LLONG_MIN) {
+            value = -svalue;
+        } else {
+            value = ((unsigned long long) LLONG_MAX)+1;
+        }
+        negative = 1;
+    } else {
+        value = svalue;
+        negative = 0;
+    }
+
+    /* Check length. */
+    uint32_t const length = digits10(value)+negative;
+    if (length >= dstlen) return 0;
+
+    /* Null term. */
+    uint32_t next = length;
+    dst[next] = '\0';
+    next--;
+    while (value >= 100) {
+        int const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+        next -= 2;
+    }
+
+    /* Handle last 1-2 digits. */
+    if (value < 10) {
+        dst[next] = '0' + (uint32_t) value;
+    } else {
+        int i = (uint32_t) value * 2;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+    }
+
+    /* Add sign. */
+    if (negative) dst[0] = '-';
+    return length;
 }
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
  * the parsed value when appropriate. */
-int string2ll(char *s, size_t slen, long long *value) {
-    char *p = s;
+int string2ll(const char *s, size_t slen, long long *value) {
+    const char *p = s;
     size_t plen = 0;
     int negative = 0;
     unsigned long long v;
@@ -276,7 +371,7 @@ int string2ll(char *s, size_t slen, long long *value) {
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
-int string2l(char *s, size_t slen, long *lval) {
+int string2l(const char *s, size_t slen, long *lval) {
     long long llval;
 
     if (!string2ll(s,slen,&llval))
@@ -290,7 +385,7 @@ int string2l(char *s, size_t slen, long *lval) {
 }
 
 /* Convert a double to a string representation. Returns the number of bytes
- * required. The representation should always be parsable by stdtod(3). */
+ * required. The representation should always be parsable by strtod(3). */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
         len = snprintf(buf,len,"nan");
@@ -318,7 +413,7 @@ int d2string(char *buf, size_t len, double value) {
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && value == ((double)((long long)value)))
+        if (value > min && value < max && value == ((double)((long long)value)))
             len = ll2string(buf,len,(long long)value);
         else
 #endif
@@ -328,15 +423,110 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
-/* Return the UNIX time in microseconds */
-long long ustime(void) {
-    struct timeval tv;
-    long long ust;
+/* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
+ * given execution of Redis, so that if you are talking with an instance
+ * having run_id == A, and you reconnect and it has run_id == B, you can be
+ * sure that it is either a different instance or it was restarted. */
+void getRandomHexChars(char *p, unsigned int len) {
+    FILE *fp = fopen("/dev/urandom","r");
+    char *charset = "0123456789abcdef";
+    unsigned int j;
 
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
+    if (fp == NULL || fread(p,len,1,fp) == 0) {
+        /* If we can't read from /dev/urandom, do some reasonable effort
+         * in order to create some entropy, since this function is used to
+         * generate run_id and cluster instance IDs */
+        char *x = p;
+        unsigned int l = len;
+        struct timeval tv;
+        pid_t pid = getpid();
+
+        /* Use time and PID to fill the initial array. */
+        gettimeofday(&tv,NULL);
+        if (l >= sizeof(tv.tv_usec)) {
+            memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
+            l -= sizeof(tv.tv_usec);
+            x += sizeof(tv.tv_usec);
+        }
+        if (l >= sizeof(tv.tv_sec)) {
+            memcpy(x,&tv.tv_sec,sizeof(tv.tv_sec));
+            l -= sizeof(tv.tv_sec);
+            x += sizeof(tv.tv_sec);
+        }
+        if (l >= sizeof(pid)) {
+            memcpy(x,&pid,sizeof(pid));
+            l -= sizeof(pid);
+            x += sizeof(pid);
+        }
+        /* Finally xor it with rand() output, that was already seeded with
+         * time() at startup. */
+        for (j = 0; j < len; j++)
+            p[j] ^= rand();
+    }
+    /* Turn it into hex digits taking just 4 bits out of 8 for every byte. */
+    for (j = 0; j < len; j++)
+        p[j] = charset[p[j] & 0x0F];
+    if (fp) fclose(fp);
+}
+
+/* Given the filename, return the absolute path as an SDS string, or NULL
+ * if it fails for some reason. Note that "filename" may be an absolute path
+ * already, this will be detected and handled correctly.
+ *
+ * The function does not try to normalize everything, but only the obvious
+ * case of one or more "../" appearning at the start of "filename"
+ * relative path. */
+sds getAbsolutePath(char *filename) {
+    char cwd[1024];
+    sds abspath;
+    sds relpath = sdsnew(filename);
+
+    relpath = sdstrim(relpath," \r\n\t");
+    if (relpath[0] == '/') return relpath; /* Path is already absolute. */
+
+    /* If path is relative, join cwd and relative path. */
+    if (getcwd(cwd,sizeof(cwd)) == NULL) {
+        sdsfree(relpath);
+        return NULL;
+    }
+    abspath = sdsnew(cwd);
+    if (sdslen(abspath) && abspath[sdslen(abspath)-1] != '/')
+        abspath = sdscat(abspath,"/");
+
+    /* At this point we have the current path always ending with "/", and
+     * the trimmed relative path. Try to normalize the obvious case of
+     * trailing ../ elements at the start of the path.
+     *
+     * For every "../" we find in the filename, we remove it and also remove
+     * the last element of the cwd, unless the current cwd is "/". */
+    while (sdslen(relpath) >= 3 &&
+           relpath[0] == '.' && relpath[1] == '.' && relpath[2] == '/')
+    {
+        sdsrange(relpath,3,-1);
+        if (sdslen(abspath) > 1) {
+            char *p = abspath + sdslen(abspath)-2;
+            int trimlen = 1;
+
+            while(*p != '/') {
+                p--;
+                trimlen++;
+            }
+            sdsrange(abspath,0,-(trimlen+1));
+        }
+    }
+
+    /* Finally glue the two parts together. */
+    abspath = sdscatsds(abspath,relpath);
+    sdsfree(relpath);
+    return abspath;
+}
+
+/* Return true if the specified path is just a file basename without any
+ * relative or absolute path. This function just checks that no / or \
+ * character exists inside the specified path, that's enough in the
+ * environments where Redis runs. */
+int pathIsBaseName(char *path) {
+    return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
 #ifdef UTIL_TEST_MAIN

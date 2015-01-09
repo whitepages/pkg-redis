@@ -83,7 +83,7 @@ start_server {tags {"basic"}} {
             for {set x 9999} {$x >= 0} {incr x -1} {
                 set val [r get $x]
                 if {$val ne $x} {
-                    set err "Eleemnt at position $x is $val instead of $x"
+                    set err "Element at position $x is $val instead of $x"
                     break
                 }
             }
@@ -120,7 +120,19 @@ start_server {tags {"basic"}} {
         r incrby novar 17179869184
     } {34359738368}
 
-    test {INCR fails against key with spaces (no integer encoded)} {
+    test {INCR fails against key with spaces (left)} {
+        r set novar "    11"
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (right)} {
+        r set novar "11    "
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (both)} {
         r set novar "    11    "
         catch {r incr novar} err
         format $err
@@ -131,12 +143,80 @@ start_server {tags {"basic"}} {
         catch {r incr mylist} err
         r rpop mylist
         format $err
-    } {ERR*}
+    } {WRONGTYPE*}
 
     test {DECRBY over 32bit value with over 32bit increment, negative res} {
         r set novar 17179869184
         r decrby novar 17179869185
     } {-1}
+
+    test {INCRBYFLOAT against non existing key} {
+        r del novar
+        list    [roundFloat [r incrbyfloat novar 1]] \
+                [roundFloat [r get novar]] \
+                [roundFloat [r incrbyfloat novar 0.25]] \
+                [roundFloat [r get novar]]
+    } {1 1 1.25 1.25}
+
+    test {INCRBYFLOAT against key originally set with SET} {
+        r set novar 1.5
+        roundFloat [r incrbyfloat novar 1.5]
+    } {3}
+
+    test {INCRBYFLOAT over 32bit value} {
+        r set novar 17179869184
+        r incrbyfloat novar 1.5
+    } {17179869185.5}
+
+    test {INCRBYFLOAT over 32bit value with over 32bit increment} {
+        r set novar 17179869184
+        r incrbyfloat novar 17179869184
+    } {34359738368}
+
+    test {INCRBYFLOAT fails against key with spaces (left)} {
+        set err {}
+        r set novar "    11"
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (right)} {
+        set err {}
+        r set novar "11    "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (both)} {
+        set err {}
+        r set novar " 11 "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against a key holding a list} {
+        r del mylist
+        set err {}
+        r rpush mylist 1
+        catch {r incrbyfloat mylist 1.0} err
+        r del mylist
+        format $err
+    } {WRONGTYPE*}
+
+    test {INCRBYFLOAT does not allow NaN or Infinity} {
+        r set foo 0
+        set err {}
+        catch {r incrbyfloat foo +inf} err
+        set err
+        # p.s. no way I can force NaN to test it from the API because
+        # there is no way to increment / decrement by infinity nor to
+        # perform divisions.
+    } {ERR*would produce*}
+
+    test {INCRBYFLOAT decrement} {
+        r set foo 1
+        roundFloat [r incrbyfloat foo -1.1]
+    } {-0.1}
 
     test "SETNX target key missing" {
         r del novar
@@ -181,6 +261,14 @@ start_server {tags {"basic"}} {
         assert_equal 20 [r get x]
     }
 
+    test "DEL against expired key" {
+        r debug set-active-expire 0
+        r setex keyExpire 1 valExpire
+        after 1100
+        assert_equal 0 [r del keyExpire]
+        r debug set-active-expire 1
+    }
+
     test {EXISTS} {
         set res {}
         r set newkey test
@@ -202,9 +290,9 @@ start_server {tags {"basic"}} {
         puts -nonewline $fd "SET k1 xyzk\r\nGET k1\r\nPING\r\n"
         flush $fd
         set res {}
-        append res [string match OK* [::redis::redis_read_reply $fd]]
-        append res [::redis::redis_read_reply $fd]
-        append res [string match PONG* [::redis::redis_read_reply $fd]]
+        append res [string match OK* [r read]]
+        append res [r read]
+        append res [string match PONG* [r read]]
         format $res
     } {1xyzk1}
 
@@ -212,7 +300,7 @@ start_server {tags {"basic"}} {
         catch {r foobaredcommand} err
         string match ERR* $err
     } {1}
-    
+
     test {RENAME basic usage} {
         r set mykey hello
         r rename mykey mykey1
@@ -262,6 +350,25 @@ start_server {tags {"basic"}} {
         format $err
     } {ERR*}
 
+    test {RENAME with volatile key, should move the TTL as well} {
+        r del mykey mykey2
+        r set mykey foo
+        r expire mykey 100
+        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
+        r rename mykey mykey2
+        assert {[r ttl mykey2] > 95 && [r ttl mykey2] <= 100}
+    }
+
+    test {RENAME with volatile key, should not inherit TTL of target key} {
+        r del mykey mykey2
+        r set mykey foo
+        r set mykey2 bar
+        r expire mykey2 100
+        assert {[r ttl mykey] == -1 && [r ttl mykey2] > 0}
+        r rename mykey mykey2
+        r ttl mykey2
+    } {-1}
+
     test {DEL all keys again (DB 0)} {
         foreach key [r keys *] {
             r del $key
@@ -297,6 +404,12 @@ start_server {tags {"basic"}} {
         r move mykey 10
     } {0}
 
+    test {MOVE against non-integer DB (#1428)} {
+        r set mykey hello
+        catch {r move mykey notanumber} e
+        set e
+    } {*ERR*index out of range}
+
     test {SET/GET keys in different DBs} {
         r set a hello
         r set b world
@@ -313,7 +426,7 @@ start_server {tags {"basic"}} {
         r select 9
         format $res
     } {hello world foo bared}
-    
+
     test {MGET} {
         r flushdb
         r set foo BAR
@@ -369,7 +482,7 @@ start_server {tags {"basic"}} {
         r set foo bar
         list [r getset foo xyz] [r get foo]
     } {bar xyz}
-    
+
     test {MSET base case} {
         r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
         r mget x y z
@@ -432,7 +545,7 @@ start_server {tags {"basic"}} {
     test "SETBIT against key with wrong type" {
         r del mykey
         r lpush mykey "foo"
-        assert_error "*wrong kind*" {r setbit mykey 0 1}
+        assert_error "WRONGTYPE*" {r setbit mykey 0 1}
     }
 
     test "SETBIT with out of range bit offset" {
@@ -566,7 +679,7 @@ start_server {tags {"basic"}} {
     test "SETRANGE against key with wrong type" {
         r del mykey
         r lpush mykey "foo"
-        assert_error "*wrong kind*" {r setrange mykey 0 bar}
+        assert_error "WRONGTYPE*" {r setrange mykey 0 bar}
     }
 
     test "SETRANGE with out of range offset" {
@@ -613,4 +726,58 @@ start_server {tags {"basic"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+
+    test {Extended SET can detect syntax errors} {
+        set e {}
+        catch {r set foo bar non-existing-option} e
+        set e
+    } {*syntax*}
+
+    test {Extended SET NX option} {
+        r del foo
+        set v1 [r set foo 1 nx]
+        set v2 [r set foo 2 nx]
+        list $v1 $v2 [r get foo]
+    } {OK {} 1}
+
+    test {Extended SET XX option} {
+        r del foo
+        set v1 [r set foo 1 xx]
+        r set foo bar
+        set v2 [r set foo 2 xx]
+        list $v1 $v2 [r get foo]
+    } {{} OK 2}
+
+    test {Extended SET EX option} {
+        r del foo
+        r set foo bar ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended SET PX option} {
+        r del foo
+        r set foo bar px 10000
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended SET using multiple options at once} {
+        r set foo val
+        assert {[r set foo bar xx px 10000] eq {OK}}
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {KEYS * two times with long key, Github issue #1208} {
+        r flushdb
+        r set dlskeriewrioeuwqoirueioqwrueoqwrueqw test
+        r keys *
+        r keys *
+    } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {GETRANGE with huge ranges, Github issue #1844} {
+        r set foo bar
+        r getrange foo 0 4294967297
+    } {bar}
 }

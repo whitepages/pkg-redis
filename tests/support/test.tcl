@@ -3,9 +3,13 @@ set ::num_passed 0
 set ::num_failed 0
 set ::tests_failed {}
 
+proc fail {msg} {
+    error "assertion:$msg"
+}
+
 proc assert {condition} {
-    if {![uplevel 1 expr $condition]} {
-        error "assertion:Expected '$value' to be true"
+    if {![uplevel 1 [list expr $condition]]} {
+        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
     }
 }
 
@@ -25,7 +29,7 @@ proc assert_error {pattern code} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        error "assertion:Expected an error but nothing was catched"
+        error "assertion:Expected an error but nothing was caught"
     }
 }
 
@@ -44,33 +48,22 @@ proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
-# Test if TERM looks like to support colors
-proc color_term {} {
-    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
-}
-
-proc colorstr {color str} {
-    if {[color_term]} {
-        set b 0
-        if {[string range $color 0 4] eq {bold-}} {
-            set b 1
-            set color [string range $color 5 end]
+# Wait for the specified condition to be true, with the specified number of
+# max retries and delay between retries. Otherwise the 'elsescript' is
+# executed.
+proc wait_for_condition {maxtries delay e _else_ elsescript} {
+    while {[incr maxtries -1] >= 0} {
+        set errcode [catch {uplevel 1 [list expr $e]} result]
+        if {$errcode == 0} {
+            if {$result} break
+        } else {
+            return -code $errcode $result
         }
-        switch $color {
-            red {set colorcode {31}}
-            green {set colorcode {32}}
-            yellow {set colorcode {33}}
-            blue {set colorcode {34}}
-            magenta {set colorcode {35}}
-            cyan {set colorcode {36}}
-            white {set colorcode {37}}
-            default {set colorcode {37}}
-        }
-        if {$colorcode ne {}} {
-            return "\033\[$b;${colorcode};40m$str\033\[0m"
-        }
-    } else {
-        return $str
+        after $delay
+    }
+    if {$maxtries == -1} {
+        set errcode [catch [uplevel 1 $elsescript] result]
+        return -code $errcode $result
     }
 }
 

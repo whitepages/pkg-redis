@@ -28,55 +28,7 @@ A million repetitions of "a"
 #include "solarisfixes.h"
 #endif
 #include "sha1.h"
-
-#ifndef BYTE_ORDER
-#if (BSD >= 199103)
-# include <machine/endian.h>
-#else
-#if defined(linux) || defined(__linux__)
-# include <endian.h>
-#else
-#define	LITTLE_ENDIAN	1234	/* least-significant byte first (vax, pc) */
-#define	BIG_ENDIAN	4321	/* most-significant byte first (IBM, net) */
-#define	PDP_ENDIAN	3412	/* LSB first in word, MSW first in long (pdp)*/
-
-#if defined(vax) || defined(ns32000) || defined(sun386) || defined(__i386__) || \
-    defined(MIPSEL) || defined(_MIPSEL) || defined(BIT_ZERO_ON_RIGHT) || \
-    defined(__alpha__) || defined(__alpha)
-#define BYTE_ORDER	LITTLE_ENDIAN
-#endif
-
-#if defined(sel) || defined(pyr) || defined(mc68000) || defined(sparc) || \
-    defined(is68k) || defined(tahoe) || defined(ibm032) || defined(ibm370) || \
-    defined(MIPSEB) || defined(_MIPSEB) || defined(_IBMR2) || defined(DGUX) ||\
-    defined(apollo) || defined(__convex__) || defined(_CRAY) || \
-    defined(__hppa) || defined(__hp9000) || \
-    defined(__hp9000s300) || defined(__hp9000s700) || \
-    defined (BIT_ZERO_ON_LEFT) || defined(m68k) || defined(__sparc)
-#define BYTE_ORDER	BIG_ENDIAN
-#endif
-#endif /* linux */
-#endif /* BSD */
-#endif /* BYTE_ORDER */
-
-#if defined(__BYTE_ORDER) && !defined(BYTE_ORDER)
-#if (__BYTE_ORDER == __LITTLE_ENDIAN)
-#define BYTE_ORDER LITTLE_ENDIAN
-#else
-#define BYTE_ORDER BIG_ENDIAN
-#endif
-#endif
-
-#if !defined(BYTE_ORDER) || \
-    (BYTE_ORDER != BIG_ENDIAN && BYTE_ORDER != LITTLE_ENDIAN && \
-    BYTE_ORDER != PDP_ENDIAN)
-	/* you must determine what the correct bit order is for
-	 * your compiler - the next line is an intentional error
-	 * which will force your compiles to bomb until you fix
-	 * the above macros.
-	 */
-#error "Undefined or invalid BYTE_ORDER"
-#endif
+#include "config.h"
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
 
@@ -105,13 +57,13 @@ A million repetitions of "a"
 
 void SHA1Transform(u_int32_t state[5], const unsigned char buffer[64])
 {
-u_int32_t a, b, c, d, e;
-typedef union {
-    unsigned char c[64];
-    u_int32_t l[16];
-} CHAR64LONG16;
+    u_int32_t a, b, c, d, e;
+    typedef union {
+        unsigned char c[64];
+        u_int32_t l[16];
+    } CHAR64LONG16;
 #ifdef SHA1HANDSOFF
-CHAR64LONG16 block[1];  /* use array to appear as a pointer */
+    CHAR64LONG16 block[1];  /* use array to appear as a pointer */
     memcpy(block, buffer, 64);
 #else
     /* The following had better never be used because it causes the
@@ -119,7 +71,7 @@ CHAR64LONG16 block[1];  /* use array to appear as a pointer */
      * And the result is written through.  I threw a "const" in, hoping
      * this will cause a diagnostic.
      */
-CHAR64LONG16* block = (const CHAR64LONG16*)buffer;
+    CHAR64LONG16* block = (const CHAR64LONG16*)buffer;
 #endif
     /* Copy context->state[] to working vars */
     a = state[0];
@@ -180,12 +132,11 @@ void SHA1Init(SHA1_CTX* context)
 
 void SHA1Update(SHA1_CTX* context, const unsigned char* data, u_int32_t len)
 {
-u_int32_t i;
-u_int32_t j;
+    u_int32_t i, j;
 
     j = context->count[0];
     if ((context->count[0] += len << 3) < j)
-	context->count[1]++;
+        context->count[1]++;
     context->count[1] += (len>>29);
     j = (j >> 3) & 63;
     if ((j + len) > 63) {
@@ -205,9 +156,9 @@ u_int32_t j;
 
 void SHA1Final(unsigned char digest[20], SHA1_CTX* context)
 {
-unsigned i;
-unsigned char finalcount[8];
-unsigned char c;
+    unsigned i;
+    unsigned char finalcount[8];
+    unsigned char c;
 
 #if 0	/* untested "improvement" by DHR */
     /* Convert context->count to a sequence of bytes
@@ -218,12 +169,12 @@ unsigned char c;
     unsigned char *fcp = &finalcount[8];
 
     for (i = 0; i < 2; i++)
-    {
-	u_int32_t t = context->count[i];
-	int j;
+       {
+        u_int32_t t = context->count[i];
+        int j;
 
-	for (j = 0; j < 4; t >>= 8, j++)
-	    *--fcp = (unsigned char) t
+        for (j = 0; j < 4; t >>= 8, j++)
+	          *--fcp = (unsigned char) t;
     }
 #else
     for (i = 0; i < 8; i++) {
@@ -274,3 +225,4 @@ main(int argc, char **argv)
 }
 
 #endif
+
