@@ -70,9 +70,6 @@ proc kill_server config {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
-
-    # Remove this pid from the set of active pids in the test server.
-    send_data_packet $::test_server_fd server-killed $pid
 }
 
 proc is_alive config {
@@ -207,13 +204,10 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        set pid [exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
+        exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &
     } else {
-        set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
+        exec src/redis-server $config_file > $stdout 2> $stderr &
     }
-
-    # Tell the test server about this new instance.
-    send_data_packet $::test_server_fd server-spawned $pid
 
     # check that the server actually started
     # ugly but tries to be as fast as possible...
@@ -240,9 +234,9 @@ proc start_server {options {code undefined}} {
         return
     }
 
-    # Wait for actual startup
-    while {![info exists _pid]} {
-        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
+    # find out the pid
+    while {![info exists pid]} {
+        regexp {PID:\s(\d+)} [exec cat $stdout] _ pid
         after 100
     }
 

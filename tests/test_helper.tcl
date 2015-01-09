@@ -13,6 +13,7 @@ source tests/support/util.tcl
 
 set ::all_tests {
     unit/printver
+    unit/dump
     unit/auth
     unit/protocol
     unit/basic
@@ -44,7 +45,6 @@ set ::all_tests {
     unit/introspection
     unit/limits
     unit/obuf-limits
-    unit/dump
     unit/bitops
     unit/memefficiency
     unit/hyperloglog
@@ -65,9 +65,6 @@ set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
 set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
-set ::timeout 600; # 10 minutes without progresses will quit the test.
-set ::last_progress [clock seconds]
-set ::active_servers {} ; # Pids of active Redis instances.
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -203,19 +200,11 @@ proc test_server_main {} {
     vwait forever
 }
 
-# This function gets called 10 times per second.
+# This function gets called 10 times per second, for now does nothing but
+# may be used in the future in order to detect test clients taking too much
+# time to execute the task.
 proc test_server_cron {} {
-    set elapsed [expr {[clock seconds]-$::last_progress}]
-
-    if {$elapsed > $::timeout} {
-        set err "\[[colorstr red TIMEOUT]\]: clients state report follows."
-        puts $err
-        show_clients_state
-        kill_clients
-        force_kill_all_servers
-        the_end
-    }
-
+    # Do some work here.
     after 100 test_server_cron
 }
 
@@ -241,8 +230,6 @@ proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
     foreach {status data} $payload break
-    set ::last_progress [clock seconds]
-
     if {$status eq {ready}} {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -269,44 +256,16 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(ERR) $data"
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
-        kill_clients
-        force_kill_all_servers
+        foreach p $::clients_pids {
+            catch {exec kill -9 $p}
+        }
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
-    } elseif {$status eq {server-spawned}} {
-        lappend ::active_servers $data
-    } elseif {$status eq {server-killed}} {
-        set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
     } else {
         if {!$::quiet} {
             puts "\[$status\]: $data"
         }
-    }
-}
-
-proc show_clients_state {} {
-    # The following loop is only useful for debugging tests that may
-    # enter an infinite loop. Commented out normally.
-    foreach x $::active_clients {
-        if {[info exist ::active_clients_task($x)]} {
-            puts "$x => $::active_clients_task($x)"
-        } else {
-            puts "$x => ???"
-        }
-    }
-}
-
-proc kill_clients {} {
-    foreach p $::clients_pids {
-        catch {exec kill $p}
-    }
-}
-
-proc force_kill_all_servers {} {
-    foreach p $::active_servers {
-        puts "Killing still running Redis server $p"
-        catch {exec kill -9 $p}
     }
 }
 
@@ -317,7 +276,17 @@ proc signal_idle_client fd {
     set ::active_clients \
         [lsearch -all -inline -not -exact $::active_clients $fd]
 
-    if 0 {show_clients_state}
+    if 0 {
+        # The following loop is only useful for debugging tests that may
+        # enter an infinite loop. Commented out normally.
+        foreach x $::active_clients {
+            if {[info exist ::active_clients_task($x)]} {
+                puts "$x => $::active_clients_task($x)"
+            } else {
+                puts "$x => ???"
+            }
+        }
+    }
 
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
@@ -392,8 +361,7 @@ proc print_help_screen {} {
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
         "--list-tests       List all the available test units."
-        "--clients <num>    Number of test clients (default 16)."
-        "--timeout <sec>    Test timeout in seconds (default 10 min)."
+        "--clients <num>    Number of test clients (16)."
         "--force-failure    Force the execution of a test that always fails."
         "--help             Print this help screen."
     } "\n"]
@@ -441,9 +409,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--clients}} {
         set ::numclients $arg
-        incr j
-    } elseif {$opt eq {--timeout}} {
-        set ::timeout $arg
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen
