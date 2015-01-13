@@ -178,7 +178,7 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Address and port */
-        if ((p = strchr(argv[1],':')) == NULL) goto fmterr;
+        if ((p = strrchr(argv[1],':')) == NULL) goto fmterr;
         *p = '\0';
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
         n->port = atoi(p+1);
@@ -479,6 +479,7 @@ void clusterInit(void) {
      * the IP address via MEET messages. */
     myself->port = server.port;
 
+    server.cluster->mf_end = 0;
     resetManualFailover();
 }
 
@@ -593,7 +594,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
                 redisLog(REDIS_VERBOSE,
-                    "Accepting cluster node: %s", server.neterr);
+                    "Error accepting cluster node: %s", server.neterr);
             return;
         }
         anetNonBlock(NULL,cfd);
@@ -1118,6 +1119,7 @@ int clusterStartHandshake(char *ip, int port) {
 
     /* Set norm_ip as the normalized string representation of the node
      * IP address. */
+    memset(norm_ip,0,REDIS_IP_STR_LEN);
     if (sa.ss_family == AF_INET)
         inet_ntop(AF_INET,
             (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
@@ -1463,7 +1465,8 @@ int clusterProcessPacket(clusterLink *link) {
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
-    if (ntohs(hdr->ver) != 0) return 1; /* Can't handle versions other than 0.*/
+    if (ntohs(hdr->ver) != CLUSTER_PROTO_VER)
+        return 1; /* Can't handle versions other than the current one.*/
     if (totlen > sdslen(link->rcvbuf)) return 1;
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
@@ -1482,7 +1485,8 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
-        explen += sizeof(clusterMsgDataPublish) +
+        explen += sizeof(clusterMsgDataPublish) -
+                8 +
                 ntohl(hdr->data.publish.msg.channel_len) +
                 ntohl(hdr->data.publish.msg.message_len);
         if (totlen != explen) return 1;
@@ -1543,8 +1547,12 @@ int clusterProcessPacket(clusterLink *link) {
          * later if we changed address, and those nodes will use our
          * official address to connect to us. So by obtaining this address
          * from the socket is a simple way to discover / update our own
-         * address in the cluster without it being hardcoded in the config. */
-        if (type == CLUSTERMSG_TYPE_MEET) {
+         * address in the cluster without it being hardcoded in the config.
+         *
+         * However if we don't have an address at all, we update the address
+         * even with a normal PING packet. If it's wrong it will be fixed
+         * by MEET later. */
+        if (type == CLUSTERMSG_TYPE_MEET || myself->ip[0] == '\0') {
             char ip[REDIS_IP_STR_LEN];
 
             if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
@@ -2024,6 +2032,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
               myself->slaveof : myself;
 
     memset(hdr,0,sizeof(*hdr));
+    hdr->ver = htons(CLUSTER_PROTO_VER);
     hdr->sig[0] = 'R';
     hdr->sig[1] = 'C';
     hdr->sig[2] = 'm';
@@ -2070,7 +2079,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
 void clusterSendPing(clusterLink *link, int type) {
-    unsigned char buf[sizeof(clusterMsg)];
+    unsigned char buf[sizeof(clusterMsg)+sizeof(clusterMsgDataGossip)*3];
     clusterMsg *hdr = (clusterMsg*) buf;
     int gossipcount = 0, totlen;
     /* freshnodes is the number of nodes we can still use to populate the
@@ -2184,7 +2193,7 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_PUBLISH);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    totlen += sizeof(clusterMsgDataPublish) + channel_len + message_len;
+    totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
 
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
@@ -2517,7 +2526,7 @@ void clusterHandleSlaveFailover(void) {
 
     /* Compute the failover timeout (the max time we have to send votes
      * and wait for replies), and the failover retry time (the time to wait
-     * before waiting again.
+     * before trying to get voted again).
      *
      * Timeout is MIN(NODE_TIMEOUT*2,2000) milliseconds.
      * Retry is two times the Timeout.
@@ -4307,8 +4316,8 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     }
 
     /* Create the socket */
-    fd = anetTcpNonBlockConnect(server.neterr,c->argv[1]->ptr,
-                atoi(c->argv[2]->ptr));
+    fd = anetTcpNonBlockBindConnect(server.neterr,c->argv[1]->ptr,
+                atoi(c->argv[2]->ptr),REDIS_BIND_ADDR);
     if (fd == -1) {
         sdsfree(name);
         addReplyErrorFormat(c,"Can't connect to target node: %s",

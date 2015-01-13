@@ -302,7 +302,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth() {
+static int cliAuth(void) {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
@@ -315,7 +315,7 @@ static int cliAuth() {
 }
 
 /* Send SELECT dbnum to the server */
-static int cliSelect() {
+static int cliSelect(void) {
     redisReply *reply;
     if (config.dbnum == 0) return REDIS_OK;
 
@@ -524,7 +524,8 @@ static int cliReadReply(int output_raw_strings) {
         }
         if (config.interactive) {
             /* Filter cases where we should reconnect */
-            if (context->err == REDIS_ERR_IO && errno == ECONNRESET)
+            if (context->err == REDIS_ERR_IO &&
+                (errno == ECONNRESET || errno == EPIPE))
                 return REDIS_ERR;
             if (context->err == REDIS_ERR_EOF)
                 return REDIS_ERR;
@@ -829,6 +830,7 @@ static void usage(void) {
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
+"  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
@@ -874,6 +876,33 @@ static char **convertToSds(int count, char** args) {
     sds[j] = sdsnew(args[j]);
 
   return sds;
+}
+
+static int issueCommandRepeat(int argc, char **argv, long repeat) {
+    while (1) {
+        config.cluster_reissue_command = 0;
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliConnect(1);
+
+            /* If we still cannot send the command print error.
+             * We'll try to reconnect the next time. */
+            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+                cliPrintContextError();
+                return REDIS_ERR;
+            }
+         }
+         /* Issue the command again if we got redirected in cluster mode */
+         if (config.cluster_mode && config.cluster_reissue_command) {
+            cliConnect(1);
+         } else {
+             break;
+        }
+    }
+    return REDIS_OK;
+}
+
+static int issueCommand(int argc, char **argv) {
+    return issueCommandRepeat(argc, argv, config.repeat);
 }
 
 static void repl(void) {
@@ -932,26 +961,8 @@ static void repl(void) {
                         repeat = 1;
                     }
 
-                    while (1) {
-                        config.cluster_reissue_command = 0;
-                        if (cliSendCommand(argc-skipargs,argv+skipargs,repeat)
-                            != REDIS_OK)
-                        {
-                            cliConnect(1);
+                    issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
-                            /* If we still cannot send the command print error.
-                             * We'll try to reconnect the next time. */
-                            if (cliSendCommand(argc-skipargs,argv+skipargs,repeat)
-                                != REDIS_OK)
-                                cliPrintContextError();
-                        }
-                        /* Issue the command again if we got redirected in cluster mode */
-                        if (config.cluster_mode && config.cluster_reissue_command) {
-                            cliConnect(1);
-                        } else {
-                            break;
-                        }
-                    }
                     elapsed = mstime()-start_time;
                     if (elapsed >= 500) {
                         printf("(%.2fs)\n",(double)elapsed/1000);
@@ -972,10 +983,9 @@ static int noninteractive(int argc, char **argv) {
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
-        retval = cliSendCommand(argc+1, argv, config.repeat);
+        retval = issueCommand(argc+1, argv);
     } else {
-        /* stdin is probably a tty, can be tested with S_ISCHR(s.st_mode) */
-        retval = cliSendCommand(argc, argv, config.repeat);
+        retval = issueCommand(argc, argv);
     }
     return retval;
 }
@@ -1019,7 +1029,7 @@ static int evalMode(int argc, char **argv) {
     argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
     /* Call it */
-    return cliSendCommand(argc+3-got_comma, argv2, config.repeat);
+    return issueCommand(argc+3-got_comma, argv2);
 }
 
 /*------------------------------------------------------------------------------
@@ -1511,7 +1521,7 @@ static void findBigKeys(void) {
     for(i=0;i<TYPE_NONE; i++) {
         maxkeys[i] = sdsempty();
         if(!maxkeys[i]) {
-            fprintf(stderr, "Failed to allocate memory for largest key names!");
+            fprintf(stderr, "Failed to allocate memory for largest key names!\n");
             exit(1);
         }
     }
@@ -1962,6 +1972,9 @@ int main(int argc, char **argv) {
 
     /* Start interactive mode when no command is provided */
     if (argc == 0 && !config.eval) {
+        /* Ignore SIGPIPE in interactive mode to force a reconnect */
+        signal(SIGPIPE, SIG_IGN);
+
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
         cliConnect(0);
