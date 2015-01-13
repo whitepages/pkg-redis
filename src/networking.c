@@ -100,6 +100,7 @@ redisClient *createClient(int fd) {
     c->ctime = c->lastinteraction = server.unixtime;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
+    c->repl_put_online_on_ack = 0;
     c->reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
@@ -678,12 +679,8 @@ void freeClient(redisClient *c) {
 
     /* Log link disconnection with slave */
     if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR)) {
-        char ip[REDIS_IP_STR_LEN];
-
-        if (anetPeerToString(c->fd,ip,sizeof(ip),NULL) != -1) {
-            redisLog(REDIS_WARNING,"Connection with slave %s:%d lost.",
-                ip, c->slave_listening_port);
-        }
+        redisLog(REDIS_WARNING,"Connection with slave %s lost.",
+            replicationGetSlaveName(c));
     }
 
     /* Free the query buffer */
@@ -842,6 +839,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+        server.stat_net_output_bytes += totwritten;
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
@@ -929,8 +927,10 @@ int processInlineBuffer(redisClient *c) {
     sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
-    if (c->argv) zfree(c->argv);
-    c->argv = zmalloc(sizeof(robj*)*argc);
+    if (argc) {
+        if (c->argv) zfree(c->argv);
+        c->argv = zmalloc(sizeof(robj*)*argc);
+    }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
@@ -1182,6 +1182,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
         if (c->flags & REDIS_MASTER) c->reploff += nread;
+        server.stat_net_input_bytes += nread;
     } else {
         server.current_client = NULL;
         return;
