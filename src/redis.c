@@ -1448,6 +1448,7 @@ void initServerConfig(void) {
     server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
+    server.maxmemory_sampling_policy = REDIS_DEFAULT_MAXMEMORY_SAMPLING_POLICY;
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_size = REDIS_LIST_MAX_ZIPLIST_SIZE;
@@ -2704,6 +2705,7 @@ sds genRedisInfoString(char *section) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         char *maxmemory_policy = maxmemoryToString();
+        char *maxmemory_sampling_policy = maxmemorySamplingPolicyToString();
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2729,7 +2731,8 @@ sds genRedisInfoString(char *section) {
             "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n"
-            "maxmemory_policy:%s\r\n",
+            "maxmemory_policy:%s\r\n"
+            "maxmemory_sampling_policy:%s\r\n",
             zmalloc_used,
             hmem,
             server.resident_set_size,
@@ -2740,7 +2743,8 @@ sds genRedisInfoString(char *section) {
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
             zmalloc_get_fragmentation_ratio(server.resident_set_size),
             ZMALLOC_LIB,
-            maxmemory_policy
+            maxmemory_policy,
+            maxmemory_sampling_policy
             );
     }
 

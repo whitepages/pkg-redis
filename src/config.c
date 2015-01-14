@@ -251,6 +251,13 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"maxmemory-sampling-policy") && argc == 2) {
+            if (!strcasecmp(argv[1],"lru")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_SAMPLING_POLICY_LRU;
+	    } else {
+                err = "Invalid maxmemory lru sampling policy";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
@@ -703,6 +710,12 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.maxmemory_samples = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-sampling-policy")) {
+        if (!strcasecmp(o->ptr,"lru")) {
+            server.maxmemory_sampling_policy = REDIS_MAXMEMORY_SAMPLING_POLICY_LRU;
+        } else {
+            goto badfmt;
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
@@ -1033,6 +1046,15 @@ char *maxmemoryToString() {
     return s;
 }
 
+char *maxmemorySamplingPolicyToString() {
+    char *s;
+    switch(server.maxmemory_sampling_policy) {
+    case REDIS_MAXMEMORY_SAMPLING_POLICY_LRU: s = "lru"; break;
+    default: s = "unknown"; break;
+    }
+    return s;
+}
+
 int supervisedToMode(const char *str) {
     int mode;
     if (!strcasecmp(str,"upstart")) {
@@ -1170,6 +1192,11 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"maxmemory-policy",0)) {
         addReplyBulkCString(c,"maxmemory-policy");
         addReplyBulkCString(c,maxmemoryToString());
+        matches++;
+    }
+    if (stringmatch(pattern,"maxmemory-sampling-policy",0)) {
+        addReplyBulkCString(c,"maxmemory-sampling-policy");
+        addReplyBulkCString(c,maxmemorySamplingPolicyToString());
         matches++;
     }
     if (stringmatch(pattern,"appendfsync",0)) {
@@ -1881,6 +1908,9 @@ int rewriteConfig(char *path) {
         "noeviction", REDIS_MAXMEMORY_NO_EVICTION,
         NULL, REDIS_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,REDIS_DEFAULT_MAXMEMORY_SAMPLES);
+    rewriteConfigEnumOption(state,"maxmemory-sampling-policy",server.maxmemory_sampling_policy,
+        "lru", REDIS_MAXMEMORY_SAMPLING_POLICY_LRU,
+        NULL, REDIS_DEFAULT_MAXMEMORY_SAMPLING_POLICY);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != REDIS_AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,REDIS_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,

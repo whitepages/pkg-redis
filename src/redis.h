@@ -357,7 +357,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
+#define REDIS_MAXMEMORY_SAMPLING_POLICY_LRU 0
 #define REDIS_DEFAULT_MAXMEMORY_POLICY REDIS_MAXMEMORY_NO_EVICTION
+#define REDIS_DEFAULT_MAXMEMORY_SAMPLING_POLICY REDIS_MAXMEMORY_SAMPLING_POLICY_LRU
 
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
@@ -864,6 +866,7 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
+    int maxmemory_sampling_policy;  /* Policy for key eviction sampling */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */
@@ -1273,6 +1276,7 @@ void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
 char *maxmemoryToString(void);
+char *maxmemorySamplingPolicyToString(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
