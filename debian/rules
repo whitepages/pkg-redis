@@ -20,9 +20,6 @@ endif
 %:
 	dh $@ --with systemd
 
-override_dh_auto_test:
-	# Testsuite requires working TCP/IP and a non-interactive mode
-
 override_dh_auto_install:
 
 override_dh_auto_build:
