@@ -5,6 +5,12 @@ redis (2:3.0.0~rc2-1) UNRELEASED; urgency=low
   * Renable testsuite.
   * Add --oknodo to initscript "start" action to ensure correct return code if
     is already running.
+  * Split redis-sentinel into its own package (Closes: #775414)
+    - Move /usr/bin/redis-sentinel symlink to new package.
+    - Fork ./sentinel.conf -> debian/sentinel.conf for own changes.
+    - Add logrotate stanza.
+    - Override permissions of /etc/redis/sentinel.conf with dpkg-statoverride -
+      needs to be writable by Sentinel itself.
 
  -- Chris Lamb <lamby@debian.org>  Tue, 13 Jan 2015 18:42:04 +0000
 
