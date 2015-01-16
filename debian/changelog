@@ -1,6 +1,7 @@
 redis (2:2.8.19-2) UNRELEASED; urgency=low
 
   * Re-enable testsuite.
+  * Add redis-sentinel package.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 15 Jan 2015 15:53:29 +0000
 
