@@ -1,6 +1,7 @@
 redis (2:2.8.19-2) UNRELEASED; urgency=low
 
   * Re-enable testsuite.
+    - Add tcl to Build-Depends.
   * Add --oknodo to initscript "start" action to ensure correct return code if
     is already running.
 
