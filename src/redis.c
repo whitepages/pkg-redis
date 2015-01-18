@@ -3471,6 +3471,7 @@ void redisAsciiArt(void) {
             (long) getpid()
         );
     } else {
+        if (server.logfile[0] == '\0') ascii_logo = ascii_logo_color;
         snprintf(buf,1024*16,ascii_logo,
             REDIS_VERSION,
             redisGitSHA1(),

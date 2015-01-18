@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define ANSI_COLOR_RED      "\x1b[31m"
+#define ANSI_COLOR_RESET    "\x1b[0m"
+
 char *ascii_logo =
 "                _._                                                  \n"
 "           _.-``__ ''-._                                             \n"
@@ -45,3 +48,23 @@ char *ascii_logo =
 "      `-._    `-.__.-'    _.-'                                       \n"
 "          `-._        _.-'                                           \n"
 "              `-.__.-'                                               \n\n";
+
+char *ascii_logo_color =
+ANSI_COLOR_RED "                _._                 " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED "           _.-``" ANSI_COLOR_RESET "__ " ANSI_COLOR_RED "''-._             " ANSI_COLOR_RESET "                                \n"
+ANSI_COLOR_RED "      _.-``    " ANSI_COLOR_RESET "`.  `_." ANSI_COLOR_RED "  ''-._        " ANSI_COLOR_RESET "   Redis %s (%s/%d) %s bit\n"
+ANSI_COLOR_RED "  .-`` " ANSI_COLOR_RESET ".-```.  ```\\/" ANSI_COLOR_RED "    _.,_ ''-._  " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED " (    " ANSI_COLOR_RESET "'      ,  " ANSI_COLOR_RED "     .-`  | `,    )  " ANSI_COLOR_RESET "   Running in %s mode\n"
+ANSI_COLOR_RED " |`-._" ANSI_COLOR_RESET "`-...-` __...-." ANSI_COLOR_RED "``-._|'` _.-'|  " ANSI_COLOR_RESET "   Port: %d\n"
+ANSI_COLOR_RED " |    `-._   " ANSI_COLOR_RESET "`._    /" ANSI_COLOR_RED "     _.-'    |  " ANSI_COLOR_RESET "   PID: %ld\n"
+ANSI_COLOR_RED "  `-._    `-._  " ANSI_COLOR_RESET "`-./" ANSI_COLOR_RED "  _.-'    _.-'   " ANSI_COLOR_RESET "                                \n"
+ANSI_COLOR_RED " |`-._`-._    `-.__.-'    _.-'_.-'| " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED " |    `-._`-._        _.-'_.-'    | " ANSI_COLOR_RESET "          http://redis.io        \n"
+ANSI_COLOR_RED "  `-._    `-._`-.__.-'_.-'    _.-'  " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED " |`-._`-._    `-.__.-'    _.-'_.-'| " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED " |    `-._`-._        _.-'_.-'    | " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED "  `-._    `-._`-.__.-'_.-'    _.-'  " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED "      `-._    `-.__.-'    _.-'      " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED "          `-._        _.-'          " ANSI_COLOR_RESET "                                 \n"
+ANSI_COLOR_RED "              `-.__.-'              " ANSI_COLOR_RESET "                                 \n\n"
+;
