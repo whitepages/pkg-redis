@@ -1,3 +1,23 @@
+redis (2:3.0.0~rc2-2) UNRELEASED; urgency=medium
+
+  * Add the following run-parts(8) directories that are be executed at the
+    appropriate daemon start and stop actions:
+
+    - /etc/redis/redis-server.pre-up.d
+    - /etc/redis/redis-server.pre-down.d
+    - /etc/redis/redis-server.post-up.d
+    - /etc/redis/redis-server.post-down.d
+    - /etc/redis/redis-sentinel.pre-up.d
+    - /etc/redis/redis-sentinel.pre-down.d
+    - /etc/redis/redis-sentinel.post-up.d
+    - /etc/redis/redis-sentinel.post-down.d
+
+    This is useful for loading Lua scripts which are not persisted across
+    restarts. Scripts should be idempotent so that multiple calls to (eg.)
+    "/etc/init.d/redis-server start" do not result in unintended consequences.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 20 Jan 2015 10:41:13 +0000
+
 redis (2:3.0.0~rc2-1) experimental; urgency=low
 
   * New upstream RC release.
