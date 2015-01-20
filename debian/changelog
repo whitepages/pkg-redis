@@ -1,5 +1,6 @@
 redis (2:3.0.0~rc2-2) UNRELEASED; urgency=medium
 
+  * Add Build-Depends on `tcl` for tests.
   * Add the following run-parts(8) directories that are be executed at the
     appropriate daemon start and stop actions:
 
