@@ -1,3 +1,11 @@
+redis (2:3.0.0~rc2-2) UNRELEASED; urgency=medium
+
+  * WIP on /etc/redis/redis-{server,sentinel}.{up,down} run-parts support to
+    run commands after startup. This is useful for loading Lua scripts which
+    are not persisted across restarts.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 20 Jan 2015 10:41:13 +0000
+
 redis (2:3.0.0~rc2-1) experimental; urgency=low
 
   * New upstream RC release.
