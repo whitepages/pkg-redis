@@ -4,6 +4,7 @@ redis (2:2.8.19-2) UNRELEASED; urgency=low
     - Add tcl to Build-Depends.
   * Add --oknodo to initscript "start" action to ensure correct return code if
     is already running.
+  * Use the latest debian/changelog date in 05-reproducible-build.diff.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 15 Jan 2015 15:53:29 +0000
 
