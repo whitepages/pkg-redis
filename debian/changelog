@@ -1,4 +1,4 @@
-redis (2:2.8.19-2) UNRELEASED; urgency=low
+redis (2:2.8.19-2) unstable; urgency=low
 
   * Re-enable testsuite.
     - Add tcl to Build-Depends.
@@ -6,7 +6,7 @@ redis (2:2.8.19-2) UNRELEASED; urgency=low
     is already running.
   * Use the latest debian/changelog date in 05-reproducible-build.diff.
 
- -- Chris Lamb <lamby@debian.org>  Thu, 15 Jan 2015 15:53:29 +0000
+ -- Chris Lamb <lamby@debian.org>  Tue, 27 Jan 2015 04:48:25 +0000
 
 redis (2:2.8.19-1) unstable; urgency=medium
 
