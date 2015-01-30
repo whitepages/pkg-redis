@@ -1,3 +1,9 @@
+redis (2:3.0.0~rc3-1) UNRELEASED; urgency=medium
+
+  * New upstream RC release.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 30 Jan 2015 18:40:22 +0000
+
 redis (2:3.0.0~rc2-2) experimental; urgency=medium
 
   * Add Build-Depends on `tcl` for tests.
