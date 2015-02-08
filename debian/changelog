@@ -1,3 +1,9 @@
+redis (2:2.8.19-3) UNRELEASED; urgency=medium
+
+  * Add DEP-8 smoke test.
+
+ -- Chris Lamb <lamby@debian.org>  Sun, 08 Feb 2015 19:16:33 +0000
+
 redis (2:2.8.19-2) unstable; urgency=low
 
   * Re-enable testsuite.
