@@ -1,3 +1,9 @@
+redis (2:2.8.19-4) UNRELEASED; urgency=medium
+
+  * wrap-and-sort entries.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
+
 redis (2:2.8.19-3) unstable; urgency=medium
 
   * Add DEP-8 smoke test.
