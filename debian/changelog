@@ -2,6 +2,7 @@ redis (2:3.0.0~rc4-1) UNRELEASED; urgency=medium
 
   * New upstream RC release.
   * wrap-and-sort.
+  * Use the latest debian/changelog date in 05-reproducible-build.diff.
 
  -- Chris Lamb <lamby@debian.org>  Fri, 13 Feb 2015 23:14:31 +0000
 
