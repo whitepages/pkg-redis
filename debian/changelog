@@ -1,6 +1,7 @@
 redis (2:2.8.19-4) UNRELEASED; urgency=medium
 
   * wrap-and-sort entries.
+  * Tidy debian/rules.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
 
