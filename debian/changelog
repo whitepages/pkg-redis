@@ -1,4 +1,4 @@
-redis (2:3.0.0~rc5-1) UNRELEASED; urgency=medium
+redis (2:3.0.0~rc5-1) experimental; urgency=medium
 
   * New upstream RC release.
   * wrap-and-sort entries.
@@ -7,7 +7,7 @@ redis (2:3.0.0~rc5-1) UNRELEASED; urgency=medium
   * Don't run tests if nocheck specified.
   * Update debian/copyright.
 
- -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
+ -- Chris Lamb <lamby@debian.org>  Fri, 20 Mar 2015 11:36:46 +0000
 
 redis (2:3.0.0~rc4-1) experimental; urgency=medium
 
