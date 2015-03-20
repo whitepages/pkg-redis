@@ -1,9 +1,61 @@
-redis (2:2.8.19-4) UNRELEASED; urgency=medium
+redis (2:3.0.0~rc5-1) UNRELEASED; urgency=medium
 
   * wrap-and-sort entries.
   * Tidy debian/rules.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
+
+redis (2:3.0.0~rc4-1) experimental; urgency=medium
+
+  * New upstream RC release.
+  * wrap-and-sort.
+  * Use the latest debian/changelog date in 05-reproducible-build.diff.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 13 Feb 2015 23:33:53 +0000
+
+redis (2:3.0.0~rc3-1) experimental; urgency=medium
+
+  * New upstream RC release.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 30 Jan 2015 19:03:31 +0000
+
+redis (2:3.0.0~rc2-2) experimental; urgency=medium
+
+  * Add Build-Depends on `tcl` for tests.
+  * Add the following run-parts(8) directories that are be executed at the
+    appropriate daemon start and stop actions:
+
+    - /etc/redis/redis-server.pre-up.d
+    - /etc/redis/redis-server.pre-down.d
+    - /etc/redis/redis-server.post-up.d
+    - /etc/redis/redis-server.post-down.d
+    - /etc/redis/redis-sentinel.pre-up.d
+    - /etc/redis/redis-sentinel.pre-down.d
+    - /etc/redis/redis-sentinel.post-up.d
+    - /etc/redis/redis-sentinel.post-down.d
+
+    This is useful for loading Lua scripts which are not persisted across
+    restarts. Scripts should be idempotent so that multiple calls to (eg.)
+    "/etc/init.d/redis-server start" do not result in unintended consequences.
+  * Also run Redis Sentinel tests.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 27 Jan 2015 05:04:24 +0000
+
+redis (2:3.0.0~rc2-1) experimental; urgency=low
+
+  * New upstream RC release.
+    - Sync debian/redis.conf.
+  * Renable testsuite.
+  * Add --oknodo to initscript "start" action to ensure correct return code if
+    is already running.
+  * Split redis-sentinel into its own package (Closes: #775414)
+    - Move /usr/bin/redis-sentinel symlink to new package.
+    - Fork ./sentinel.conf -> debian/sentinel.conf for own changes.
+    - Add logrotate stanza.
+    - Override permissions of /etc/redis/sentinel.conf with dpkg-statoverride -
+      needs to be writable by Sentinel itself.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 16 Jan 2015 10:55:28 +0000
 
 redis (2:2.8.19-3) unstable; urgency=medium
 
@@ -20,6 +72,11 @@ redis (2:2.8.19-2) unstable; urgency=low
   * Use the latest debian/changelog date in 05-reproducible-build.diff.
 
  -- Chris Lamb <lamby@debian.org>  Tue, 27 Jan 2015 04:48:25 +0000
+
+  * New upstream RC release.
+  * Move to debhelper compatibility level 9.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 20 Mar 2015 11:17:04 +0000
 
 redis (2:2.8.19-1) unstable; urgency=medium
 
@@ -306,6 +363,14 @@ redis (2:2.4.2-1) unstable; urgency=low
   * Drop redis-doc package now that upstream no longer ship documentation.
 
  -- Chris Lamb <lamby@debian.org>  Wed, 16 Nov 2011 16:00:23 +0000
+
+redis (2:2.4.0~rc5-1) experimental; urgency=low
+
+  * New upstream RC release.
+  * Update debian/redis.conf.
+  * Drop documentation package - dropped upstream.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 29 Jul 2011 21:41:25 +0200
 
 redis (2:2.2.12-1) unstable; urgency=low
 
