@@ -1,7 +1,9 @@
 redis (2:3.0.0~rc5-1) UNRELEASED; urgency=medium
 
+  * New upstream RC release.
   * wrap-and-sort entries.
   * Tidy debian/rules.
+  * Move to debhelper compatibility level 9.
   * Don't run tests if nocheck specified.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
@@ -73,11 +75,6 @@ redis (2:2.8.19-2) unstable; urgency=low
   * Use the latest debian/changelog date in 05-reproducible-build.diff.
 
  -- Chris Lamb <lamby@debian.org>  Tue, 27 Jan 2015 04:48:25 +0000
-
-  * New upstream RC release.
-  * Move to debhelper compatibility level 9.
-
- -- Chris Lamb <lamby@debian.org>  Fri, 20 Mar 2015 11:17:04 +0000
 
 redis (2:2.8.19-1) unstable; urgency=medium
 
