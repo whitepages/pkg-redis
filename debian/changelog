@@ -2,6 +2,7 @@ redis (2:3.0.0~rc5-1) UNRELEASED; urgency=medium
 
   * wrap-and-sort entries.
   * Tidy debian/rules.
+  * Don't run tests if nocheck specified.
 
  -- Chris Lamb <lamby@debian.org>  Thu, 12 Feb 2015 23:32:09 +0000
 
