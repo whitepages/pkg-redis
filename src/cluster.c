@@ -3760,6 +3760,9 @@ void clusterCommand(redisClient *c) {
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+        /* CLUSTER MYID */
+        addReplyBulkCBuffer(c,myself->name, REDIS_CLUSTER_NAMELEN);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);
@@ -4055,7 +4058,7 @@ void clusterCommand(redisClient *c) {
         }
 
         /* Can't replicate a slave. */
-        if (n->slaveof != NULL) {
+        if (nodeIsSlave(n)) {
             addReplyError(c,"I can only replicate a master, not a slave.");
             return;
         }
@@ -4365,11 +4368,12 @@ void restoreCommand(redisClient *c) {
 
 typedef struct migrateCachedSocket {
     int fd;
+    long last_dbid;
     time_t last_use_time;
 } migrateCachedSocket;
 
-/* Return a TCP socket connected with the target instance, possibly returning
- * a cached one.
+/* Return a migrateCachedSocket containing a TCP socket connected with the
+ * target instance, possibly returning a cached one.
  *
  * This function is responsible of sending errors to the client if a
  * connection can't be established. In this case -1 is returned.
@@ -4379,7 +4383,7 @@ typedef struct migrateCachedSocket {
  * If the caller detects an error while using the socket, migrateCloseSocket()
  * should be called so that the connection will be created from scratch
  * the next time. */
-int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
+migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     int fd;
     sds name = sdsempty();
     migrateCachedSocket *cs;
@@ -4392,7 +4396,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     if (cs) {
         sdsfree(name);
         cs->last_use_time = server.unixtime;
-        return cs->fd;
+        return cs;
     }
 
     /* No cached socket, create one. */
@@ -4412,7 +4416,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
         sdsfree(name);
         addReplyErrorFormat(c,"Can't connect to target node: %s",
             server.neterr);
-        return -1;
+        return NULL;
     }
     anetEnableTcpNoDelay(server.neterr,fd);
 
@@ -4422,15 +4426,16 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         close(fd);
-        return -1;
+        return NULL;
     }
 
     /* Add to the cache and return it to the caller. */
     cs = zmalloc(sizeof(*cs));
     cs->fd = fd;
+    cs->last_dbid = -1;
     cs->last_use_time = server.unixtime;
     dictAdd(server.migrate_cached_sockets,name,cs);
-    return fd;
+    return cs;
 }
 
 /* Free a migrate cached connection. */
@@ -4471,7 +4476,8 @@ void migrateCloseTimedoutSockets(void) {
 
 /* MIGRATE host port key dbid timeout [COPY | REPLACE] */
 void migrateCommand(redisClient *c) {
-    int fd, copy, replace, j;
+    migrateCachedSocket *cs;
+    int copy, replace, j;
     long timeout;
     long dbid;
     long long ttl, expireat;
@@ -4513,15 +4519,20 @@ try_again:
     }
 
     /* Connect */
-    fd = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
-    if (fd == -1) return; /* error sent to the client by migrateGetSocket() */
+    cs = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
+    if (cs == NULL) return; /* error sent to the client by migrateGetSocket() */
+
+    rioInitWithBuffer(&cmd,sdsempty());
+
+    /* Send the SELECT command if the current DB is not already selected. */
+    int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
+    if (select) {
+        redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
+        redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
+    }
 
     /* Create RESTORE payload and generate the protocol to call the command. */
-    rioInitWithBuffer(&cmd,sdsempty());
-    redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
-    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
-    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
-
     expireat = getExpire(c->db,c->argv[3]);
     if (expireat != -1) {
         ttl = expireat-mstime();
@@ -4559,7 +4570,7 @@ try_again:
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
+            nwritten = syncWrite(cs->fd,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
@@ -4571,28 +4582,33 @@ try_again:
         char buf2[1024];
 
         /* Read the two replies */
-        if (syncReadLine(fd, buf1, sizeof(buf1), timeout) <= 0)
+        if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
             goto socket_rd_err;
-        if (syncReadLine(fd, buf2, sizeof(buf2), timeout) <= 0)
+        if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0)
             goto socket_rd_err;
-        if (buf1[0] == '-' || buf2[0] == '-') {
+        if ((select && buf1[0] == '-') || buf2[0] == '-') {
+            /* On error assume that last_dbid is no longer valid. */
+            cs->last_dbid = -1;
             addReplyErrorFormat(c,"Target instance replied with error: %s",
-                (buf1[0] == '-') ? buf1+1 : buf2+1);
+                (select && buf1[0] == '-') ? buf1+1 : buf2+1);
         } else {
+            /* Update the last_dbid in migrateCachedSocket */
+            cs->last_dbid = dbid;
             robj *aux;
+
+            addReply(c,shared.ok);
 
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,c->argv[3]);
                 signalModifiedKey(c->db,c->argv[3]);
-            }
-            addReply(c,shared.ok);
-            server.dirty++;
+                server.dirty++;
 
-            /* Translate MIGRATE as DEL for replication/AOF. */
-            aux = createStringObject("DEL",3);
-            rewriteClientCommandVector(c,2,aux,c->argv[3]);
-            decrRefCount(aux);
+                /* Translate MIGRATE as DEL for replication/AOF. */
+                aux = createStringObject("DEL",3);
+                rewriteClientCommandVector(c,2,aux,c->argv[3]);
+                decrRefCount(aux);
+            }
         }
     }
 
@@ -4674,7 +4690,12 @@ void readwriteCommand(redisClient *c) {
  *
  * REDIS_CLUSTER_REDIR_UNSTABLE if the request contains mutliple keys
  * belonging to the same slot, but the slot is not stable (in migration or
- * importing state, likely because a resharding is in progress). */
+ * importing state, likely because a resharding is in progress).
+ *
+ * REDIS_CLUSTER_REDIR_DOWN if the request addresses a slot which is not
+ * bound to any node. In this case the cluster global state should be already
+ * "down" but it is fragile to rely on the update of the global state, so
+ * we also handle it here. */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -4728,7 +4749,18 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
                 firstkey = thiskey;
                 slot = thisslot;
                 n = server.cluster->slots[slot];
-                redisAssertWithInfo(c,firstkey,n != NULL);
+
+                /* Error: If a slot is not served, we are in "cluster down"
+                 * state. However the state is yet to be updated, so this was
+                 * not trapped earlier in processCommand(). Report the same
+                 * error to the client. */
+                if (n == NULL) {
+                    getKeysFreeResult(keyindex);
+                    if (error_code)
+                        *error_code = REDIS_CLUSTER_REDIR_DOWN;
+                    return NULL;
+                }
+
                 /* If we are migrating or importing this slot, we need to check
                  * if we have all the keys in the request (the only way we
                  * can safely serve the request, otherwise we return a TRYAGAIN
