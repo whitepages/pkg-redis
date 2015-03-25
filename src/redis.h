@@ -1366,7 +1366,6 @@ void blockClient(redisClient *c, int btype);
 void unblockClient(redisClient *c);
 void replyToBlockedClientTimedOut(redisClient *c);
 int getTimeoutFromObjectOrReply(redisClient *c, robj *object, mstime_t *timeout, int unit);
-void disconnectAllBlockedClients(void);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

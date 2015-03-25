@@ -923,14 +923,8 @@ int clientsCronHandleTimeout(redisClient *c) {
         mstime_t now_ms = mstime();
 
         if (c->bpop.timeout != 0 && c->bpop.timeout < now_ms) {
-            /* Handle blocking operation specific timeout. */
             replyToBlockedClientTimedOut(c);
             unblockClient(c);
-        } else if (server.cluster_enabled) {
-            /* Cluster: handle unblock & redirect of clients blocked
-             * into keys no longer served by this server. */
-            if (clusterRedirectBlockedClientIfNeeded(c))
-                unblockClient(c);
         }
     }
     return 0;
@@ -1264,7 +1258,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     REDIS_NOTUSED(eventLoop);
 
     /* Call the Redis Cluster before sleep function. Note that this function
-     * may change the state of Redis Cluster (from ok to fail or vice versa),
+     * may change the state of Redis Cluster (frok ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
      * later in this function. */
     if (server.cluster_enabled) clusterBeforeSleep();
@@ -2164,22 +2158,38 @@ int processCommand(redisClient *c) {
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & REDIS_MASTER) &&
-        !(c->flags & REDIS_LUA_CLIENT &&
-          server.lua_caller->flags & REDIS_MASTER) &&
         !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0))
     {
         int hashslot;
 
         if (server.cluster->state != REDIS_CLUSTER_OK) {
             flagTransaction(c);
-            clusterRedirectClient(c,NULL,0,REDIS_CLUSTER_REDIR_DOWN_STATE);
+            addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down. Use CLUSTER INFO for more information\r\n"));
             return REDIS_OK;
         } else {
             int error_code;
             clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,&hashslot,&error_code);
-            if (n == NULL || n != server.cluster->myself) {
+            if (n == NULL) {
                 flagTransaction(c);
-                clusterRedirectClient(c,n,hashslot,error_code);
+                if (error_code == REDIS_CLUSTER_REDIR_CROSS_SLOT) {
+                    addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
+                } else if (error_code == REDIS_CLUSTER_REDIR_UNSTABLE) {
+                    /* The request spawns mutliple keys in the same slot,
+                     * but the slot is not "stable" currently as there is
+                     * a migration or import in progress. */
+                    addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
+                } else if (error_code == REDIS_CLUSTER_REDIR_DOWN) {
+                    addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down. Hash slot is unbound\r\n"));
+                } else {
+                    redisPanic("getNodeByQuery() unknown error.");
+                }
+                return REDIS_OK;
+            } else if (n != server.cluster->myself) {
+                flagTransaction(c);
+                addReplySds(c,sdscatprintf(sdsempty(),
+                    "-%s %d %s:%d\r\n",
+                    (error_code == REDIS_CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
+                    hashslot,n->ip,n->port));
                 return REDIS_OK;
             }
         }
