@@ -1,11 +1,11 @@
-redis (2:3.0.0-2) UNRELEASED; urgency=medium
+redis (2:3.0.0-2) unstable; urgency=medium
 
   * redis-server was not able to start under systemd with default redis.conf
     due to the absence of /var/run/redis; when RuntimeDirectory is specified in
     *.service file, systemd creates the directory in /var/run and sets the
     correct permissions. Thanks to Mikhael A <spir@spir.ru>.
 
- -- Chris Lamb <lamby@debian.org>  Thu, 09 Apr 2015 13:25:15 +0100
+ -- Chris Lamb <lamby@debian.org>  Thu, 09 Apr 2015 13:27:08 +0100
 
 redis (2:3.0.0-1) unstable; urgency=medium
 
