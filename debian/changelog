@@ -1,3 +1,10 @@
+redis (2:2.8.19-3wp1~trusty1) trusty; urgency=low
+
+  * Remove systemd package dependency
+  * Rebuild for trusty
+
+ -- Svend Sorensen <ssorensen@whitepages.com>  Mon, 27 Apr 2015 10:23:22 -0700
+
 redis (2:2.8.19-3) unstable; urgency=medium
 
   * Add DEP-8 smoke test.
